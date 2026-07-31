@@ -1,0 +1,93 @@
+name: Flight Price Monitor
+
+on:
+  schedule:
+    # Ogni giorno alle 07:00 UTC (09:00 in Italia con l'ora legale, 08:00 con l'ora solare).
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      force_notify:
+        description: 'Invia la notifica anche se nulla è cambiato'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Esegui senza notificare e senza salvare lo stato'
+        type: boolean
+        default: false
+      provider:
+        description: 'Provider voli da usare'
+        type: choice
+        default: serpapi
+        options:
+          - serpapi
+          - amadeus
+          - mock
+
+# Necessario a git-auto-commit-action per pushare lo snapshot aggiornato.
+permissions:
+  contents: write
+
+# Evita che un run schedulato e uno manuale si sovrascrivano lo stato a vicenda.
+concurrency:
+  group: flight-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: Check flight prices
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Nessuna dipendenza esterna: il progetto usa solo la standard library di
+      # Node 20+ (fetch globale). Lo step resta per sicurezza se in futuro
+      # verranno aggiunte dipendenze.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run monitor
+        id: monitor
+        env:
+          # Provider voli — bastano le credenziali di quello effettivamente usato.
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
+          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          AMADEUS_ENV: ${{ vars.AMADEUS_ENV || 'test' }}
+
+          # Notifiche — Telegram e/o Slack, entrambi opzionali.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+          FLIGHT_PROVIDER: ${{ inputs.provider || 'serpapi' }}
+          FORCE_NOTIFY: ${{ inputs.force_notify }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        # `continue-on-error` così un errore API non impedisce di committare i
+        # dati raccolti; l'esito reale resta visibile in `steps.monitor.outcome`.
+        continue-on-error: true
+        run: npm start
+
+      - name: Commit price snapshot
+        if: ${{ inputs.dry_run != true }}
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: update flight price snapshot [skip ci]'
+          file_pattern: data/last_prices.json
+          branch: main
+          commit_user_name: github-actions[bot]
+          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+      - name: Fail the job if the monitor errored
+        if: ${{ steps.monitor.outcome == 'failure' }}
+        run: |
+          echo "::error::Il monitor ha segnalato errori (quota API, volo non trovato o notifica fallita). Controlla i log dello step 'Run monitor'."
+          exit 1

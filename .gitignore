@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Secrets — usare le GitHub Secrets in CI, un .env solo in locale
+.env
+.env.*
+!.env.example
+
+# Log e output temporanei
+*.log
+npm-debug.log*
+.tmp/
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# NOTA: data/last_prices.json NON va ignorato.
+# È lo stato persistente del monitoraggio, versionato nel repo
+# e aggiornato automaticamente dalla GitHub Action.
+.todo.md
+todo.md

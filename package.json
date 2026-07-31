@@ -1,0 +1,28 @@
+{
+  "name": "looking-for-flights",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monitoraggio automatico prezzi voli con classifica per giorni di viaggio sostenibili a budget fisso.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dry-run": "node src/index.js --dry-run",
+    "mock": "node src/index.js --provider=mock --dry-run",
+    "notify-test": "node src/index.js --provider=mock --force-notify --dry-run",
+    "mete": "node scripts/sync-mete.js",
+    "mete:check": "node scripts/sync-mete.js --check"
+  },
+  "keywords": [
+    "flights",
+    "price-monitor",
+    "serpapi",
+    "amadeus",
+    "telegram",
+    "github-actions"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}

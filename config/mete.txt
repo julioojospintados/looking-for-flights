@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  METE DA MONITORARE — modifica solo questo file, poi lancia:  npm run mete
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Formato di ogni riga:
+#
+#      Nome della meta | HUB | spesa€/giorno | extra€ fissi
+#
+#  - Nome ......... come apparirà nella notifica Telegram
+#  - HUB .......... codice IATA dell'aeroporto di arrivo (3 lettere)
+#  - spesa€/giorno  quanto spendi a terra ogni giorno (vitto, alloggio, trasporti)
+#  - extra€ fissi   costi una tantum: visti, traghetti, voli interni (0 se nessuno)
+#
+#  Righe vuote e righe che iniziano con # vengono ignorate.
+#  Per sospendere una meta senza perderla, mettile davanti un #.
+#
+#  ⚠️  L'identificativo tecnico è agganciato al codice HUB: finché non cambi
+#      l'HUB, lo storico dei prezzi in data/last_prices.json resta collegato.
+#      Cambiare l'HUB equivale a creare una meta nuova (storico azzerato).
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+India (Rajasthan)             | DEL | 20 | 0
+Indonesia (Giava/Lombok)      | CGK | 27 | 70
+Thailandia (Isole del Golfo)  | BKK | 30 | 55
+Vietnam Sud + Cambogia        | SGN | 27 | 60
+Malesia Peninsulare           | KUL | 33 | 0
+
+# Esempi di altre mete, scommenta per attivarle:
+# Sri Lanka                   | CMB | 25 | 40
+# Filippine (Palawan)         | MNL | 30 | 90
+# Nepal (Himalaya)            | KTM | 22 | 50
+# Giappone                    | NRT | 75 | 0

@@ -1,0 +1,90 @@
+{
+  "_comment": "Config agnostica del motore. Per monitorare un viaggio diverso basta modificare questo file: nessuna modifica al codice in src/.",
+  "defaults": {
+    "provider": "serpapi",
+    "currency": "EUR",
+    "adults": 1,
+    "notify": {
+      "priceDropThreshold": 15,
+      "channels": ["telegram", "slack"]
+    }
+  },
+  "trips": [
+    {
+      "id": "asia-autunno-2026",
+      "name": "Asia Autunno 2026",
+      "enabled": true,
+      "budgetTotal": 1500,
+      "currency": "EUR",
+      "adults": 1,
+
+      "departureWindow": {
+        "from": "2026-09-01",
+        "to": "2026-10-31"
+      },
+
+      "tripDuration": {
+        "min": 14,
+        "max": 21,
+        "standard": 21
+      },
+
+      "origins": ["MXP", "BGY", "TRN"],
+
+      "sampling": {
+        "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Alzare departureStrideDays o ridurre durationsToTest per consumare meno quota.",
+        "departureStrideDays": 14,
+        "durationsToTest": [14, 21],
+        "maxApiCallsPerRun": 60,
+        "concurrency": 3
+      },
+
+      "notify": {
+        "priceDropThreshold": 15
+      },
+
+      "candidates": [
+        {
+          "id": "india-rajasthan",
+          "name": "India (Rajasthan)",
+          "hub": "DEL",
+          "groundCostPerDay": 20,
+          "fixedExtra": 0,
+          "notes": "Nessun costo fisso aggiuntivo previsto."
+        },
+        {
+          "id": "indonesia-giava-lombok",
+          "name": "Indonesia (Giava/Lombok)",
+          "hub": "CGK",
+          "groundCostPerDay": 27,
+          "fixedExtra": 70,
+          "notes": "Extra: voli/traghetti interni tra Giava e Lombok."
+        },
+        {
+          "id": "thailandia-isole-golfo",
+          "name": "Thailandia (Isole del Golfo)",
+          "hub": "BKK",
+          "groundCostPerDay": 30,
+          "fixedExtra": 55,
+          "notes": "Extra: transfer e traghetti per le isole."
+        },
+        {
+          "id": "vietnam-sud-cambogia",
+          "name": "Vietnam Sud + Cambogia",
+          "hub": "SGN",
+          "groundCostPerDay": 27,
+          "fixedExtra": 60,
+          "notes": "Extra: visti e trasferimenti transfrontalieri."
+        },
+        {
+          "id": "malesia-peninsulare",
+          "name": "Malesia Peninsulare",
+          "hub": "KUL",
+          "groundCostPerDay": 33,
+          "fixedExtra": 0,
+          "notes": "Nessun costo fisso aggiuntivo previsto."
+        }
+      ]
+    }
+  ]
+}
