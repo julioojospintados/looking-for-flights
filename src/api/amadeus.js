@@ -96,6 +96,8 @@ class AmadeusProvider extends FlightProvider {
     const token = await this._getAccessToken();
 
     let best = null;
+    /** Miglior offerta per aeroporto: qui è gratis, si interroga un origine per volta. */
+    const byOrigin = {};
 
     for (const origin of origins) {
       const params = new URLSearchParams({
@@ -129,10 +131,22 @@ class AmadeusProvider extends FlightProvider {
       for (const offer of offers) {
         const price = Number(offer?.price?.grandTotal ?? offer?.price?.total);
         if (!Number.isFinite(price) || price <= 0) continue;
-        if (best && price >= best.price) continue;
 
         const outboundItinerary = offer.itineraries?.[0];
         const segments = outboundItinerary?.segments ?? [];
+        const airlines = [...new Set(segments.map((s) => s.carrierCode).filter(Boolean))];
+        const stops = segments.length > 0 ? segments.length - 1 : null;
+        const bookingUrl = `https://www.google.com/travel/flights?q=${encodeURIComponent(
+          `Flights from ${origin} to ${destination} on ${outboundDate} through ${returnDate}`,
+        )}`;
+
+        // Il minimo per aeroporto si aggiorna sempre, anche quando questa
+        // offerta non batte il record globale: sono due classifiche diverse.
+        if (!byOrigin[origin] || price < byOrigin[origin].price) {
+          byOrigin[origin] = { price, airlines, stops, bookingUrl };
+        }
+
+        if (best && price >= best.price) continue;
 
         best = {
           price,
@@ -142,16 +156,17 @@ class AmadeusProvider extends FlightProvider {
           outboundDate,
           returnDate,
           durationDays,
-          airlines: [...new Set(segments.map((s) => s.carrierCode).filter(Boolean))],
-          stops: segments.length > 0 ? segments.length - 1 : null,
+          airlines,
+          stops,
           outboundDurationMinutes: parseIsoDuration(outboundItinerary?.duration),
-          bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(
-            `Flights from ${origin} to ${destination} on ${outboundDate} through ${returnDate}`,
-          )}`,
+          bookingUrl,
           provider: this.name,
         };
       }
     }
+
+    // `byOrigin` viene allegato al vincitore perché è lì che l'engine lo cerca.
+    if (best) best.byOrigin = byOrigin;
 
     return best;
   }

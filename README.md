@@ -18,6 +18,7 @@ Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più ec
   - [Comandi del bot](#comandi-del-bot)
 - [Riferimento configurazione](#-riferimento-configurazione)
   - [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico)
+  - [Prezzo per aeroporto di partenza (originGroups)](#prezzo-per-aeroporto-di-partenza-origingroups)
 - [Consumo della quota API](#-consumo-della-quota-api-leggimi)
 - [Cambiare provider](#-cambiare-provider)
 - [Troubleshooting](#-troubleshooting)
@@ -406,6 +407,12 @@ Restano visibili giorni sostenibili (già tagliati a 21), prezzo del volo e cost
 
       "origins": ["MXP", "BGY", "TRN"],   // codici IATA di partenza
 
+      // Dettaglio per aeroporto nella notifica — vedi sotto
+      "originGroups": [
+        { "id": "torino", "label": "Torino", "airports": ["TRN"] },
+        { "id": "milano", "label": "Milano", "airports": ["MXP", "BGY"] }
+      ],
+
       "sampling": {
         "departureStrideDays": 14,   // ogni quanti giorni campionare la finestra
         "durationsToTest": [14, 21], // quali durate provare (devono stare in min..max)
@@ -429,6 +436,29 @@ Restano visibili giorni sostenibili (già tagliati a 21), prezzo del volo e cost
   ]
 }
 ```
+
+### Prezzo per aeroporto di partenza (`originGroups`)
+
+La classifica è decisa dal prezzo **più basso in assoluto**, che con Milano in lista è quasi sempre Malpensa o Orio. Il risultato è che chi parte da Torino non scopriva mai quanto costa *da casa sua*: il volo da TRN veniva cercato (è in `origins`) ma, se non vinceva, spariva dal messaggio.
+
+`originGroups` risolve questo: ogni gruppo dichiarato compare **sempre** nella notifica, vincitore o no.
+
+```
+🥇 India (Rajasthan) (DEL)
+   🛬 Volo A/R: 432 EUR da TRN | 2026-09-29 → 2026-10-20
+   📅 21/21 gg pieni | 💸 20 EUR/gg
+   🧮 Totale 21 gg: 852 EUR
+   🛫 Torino (TRN): 432 EUR · ✅ il migliore · 2026-09-29 → 2026-10-20
+   🛫 Milano (MXP): 447 EUR · +15 EUR · 2026-09-01 → 2026-09-15
+```
+
+Il `+15 EUR` è il numero che serve davvero: è il prezzo dello scarto tra i due aeroporti, da confrontare con quanto costano treno e tempo per arrivare a Milano.
+
+**Non consuma ricerche extra.** Google Flights accetta `departure_id=MXP,BGY,TRN` in una sola chiamata e restituisce gli itinerari da tutti e tre: prima si teneva solo il più economico e si buttava il resto, ora la risposta viene raggruppata per aeroporto di partenza. Stesso identico consumo di quota. Con `amadeus` (che interroga un origine per volta) vale lo stesso, per costruzione.
+
+Un gruppo può indicare `non tra i risultati`: Google Flights tronca la lista, quindi un aeroporto molto più caro del vincitore a volte non compare. Significa "fuori dai risultati restituiti", **non** "nessun volo disponibile".
+
+Se ometti `originGroups`, ogni aeroporto di `origins` diventa un gruppo a sé.
 
 ### Aggiungere un viaggio
 

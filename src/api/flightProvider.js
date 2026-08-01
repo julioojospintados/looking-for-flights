@@ -15,10 +15,23 @@
  * @property {string}   currency      ISO 4217 code, e.g. "EUR".
  * @property {number}   adults        Number of adult passengers.
  *
+ * @typedef {Object} OriginOffer
+ * @property {number}      price
+ * @property {string[]}    [airlines]
+ * @property {number|null} [stops]
+ * @property {string|null} [bookingUrl]
+ *
  * @typedef {Object} FlightQuote
  * @property {number}      price                    Total round-trip price for all passengers.
  * @property {string}      currency
  * @property {string}      origin                   IATA code actually used.
+ * @property {Record<string, OriginOffer>} [byOrigin]  Cheapest fare *per departure
+ *   airport* for this same date pair. Optional: providers that cannot break the
+ *   result down omit it and the engine falls back to `origin`/`price` alone.
+ *   It exists because `origin` only names the winning airport — with a
+ *   multi-origin search the other airports are priced in the very same
+ *   response, and throwing them away would mean paying a second API call to
+ *   learn what the first one already knew.
  * @property {string}      destination
  * @property {string}      outboundDate
  * @property {string}      returnDate

@@ -339,6 +339,29 @@ export function renderMessage(trip, delta) {
       `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur}`,
     );
 
+    // Dettaglio per aeroporto di partenza. Il prezzo migliore in assoluto è
+    // quasi sempre da Milano: senza questo blocco, chi parte da Torino non
+    // saprebbe mai quanto gli costa davvero, né quando conviene il treno.
+    for (const group of result.originBreakdown ?? []) {
+      if (group.status !== 'ok') {
+        push(
+          `   🛫 ${escapeHtml(group.label)}: <i>non tra i risultati</i>`,
+          `   🛫 ${group.label}: non tra i risultati`,
+        );
+        continue;
+      }
+
+      const extra = group.isBest ? '✅ il migliore' : `+${group.extraVsBest} ${cur}`;
+      const line =
+        `   🛫 ${group.label} (${group.origin}): <b>${group.price} ${cur}</b> · ${extra} · ` +
+        `${group.outboundDate} → ${group.returnDate}`;
+
+      push(
+        group.bookingUrl ? `${line} · <a href="${escapeHtml(group.bookingUrl)}">apri</a>` : line,
+        stripTags(line) + (group.bookingUrl ? ` | ${group.bookingUrl}` : ''),
+      );
+    }
+
     const drop = delta.drops.find((item) => item.id === result.id);
     if (drop) {
       push(
@@ -346,7 +369,9 @@ export function renderMessage(trip, delta) {
         `   📉 -${drop.drop} ${cur} (era ${drop.from} ${cur})`,
       );
     }
-    if (result.bookingUrl) {
+    // Con il dettaglio per aeroporto ogni riga ha già il suo link, e quello
+    // "generale" ripeterebbe la riga vincente.
+    if (result.bookingUrl && (result.originBreakdown ?? []).length === 0) {
       push(`   🔗 <a href="${escapeHtml(result.bookingUrl)}">Apri su Google Flights</a>`, `   🔗 ${result.bookingUrl}`);
     }
     push('', '');
@@ -425,6 +450,17 @@ function toSnapshot(tripResult) {
       returnDate: result.returnDate ?? null,
       maxDays: result.maxDays,
       totalCostStandard: result.totalCostStandard,
+      // Solo prezzo e rotta: nessun dato derivato dal budget privato finisce
+      // qui (vedi il commento sopra su maxDaysBudget). Serviranno anche come
+      // storico per confronto nel tempo, aeroporto per aeroporto.
+      originBreakdown: (result.originBreakdown ?? []).map((group) => ({
+        id: group.id,
+        status: group.status,
+        price: group.price ?? null,
+        origin: group.origin ?? null,
+        outboundDate: group.outboundDate ?? null,
+        returnDate: group.returnDate ?? null,
+      })),
     })),
   };
 }

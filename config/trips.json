@@ -31,6 +31,12 @@
 
       "origins": ["MXP", "BGY", "TRN"],
 
+      "_comment_originGroups": "La classifica usa il prezzo più basso in assoluto, che è quasi sempre da Milano. Questi gruppi fanno sì che ogni notifica mostri COMUNQUE il miglior prezzo da Torino accanto a quello da Malpensa/Orio, per decidere se lo sconto vale il viaggio fino a Milano. Non costano ricerche extra: i prezzi dei singoli aeroporti sono già dentro la stessa risposta del provider.",
+      "originGroups": [
+        { "id": "torino", "label": "Torino", "airports": ["TRN"] },
+        { "id": "milano", "label": "Milano", "airports": ["MXP", "BGY"] }
+      ],
+
       "sampling": {
         "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Alzare departureStrideDays o ridurre durationsToTest per consumare meno quota.",
         "departureStrideDays": 14,

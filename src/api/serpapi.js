@@ -116,6 +116,9 @@ class SerpApiProvider extends FlightProvider {
       price: cheapest.price,
       currency,
       origin: firstLeg.departure_airport?.id ?? origins[0],
+      // Gratis: gli itinerari da tutti gli aeroporti richiesti sono già in
+      // questa risposta, basta non buttarli via.
+      byOrigin: cheapestByOrigin(itineraries, outboundDate, returnDate, destination),
       destination,
       outboundDate,
       returnDate,
@@ -131,6 +134,49 @@ class SerpApiProvider extends FlightProvider {
       provider: this.name,
     };
   }
+}
+
+/**
+ * Cheapest itinerary *per departure airport* inside a single response.
+ *
+ * `departure_id=MXP,BGY,TRN` mixes all three airports in one result list, and
+ * `pickCheapest` keeps only the overall winner — which in practice is almost
+ * never Torino. Grouping by `flights[0].departure_airport.id` recovers the
+ * runner-up airports at zero extra cost.
+ *
+ * Caveat: Google Flights truncates the list, so an airport whose fares are far
+ * above the winner's may simply not appear. A missing entry means "not among
+ * the results returned", not "no flights" — the caller must not read it as a
+ * price of infinity.
+ *
+ * @returns {Record<string, { price: number, airlines: string[], stops: number|null, bookingUrl: string|null }>}
+ */
+function cheapestByOrigin(itineraries, outboundDate, returnDate, destination) {
+  /** @type {Record<string, any>} */
+  const byOrigin = {};
+
+  for (const itinerary of itineraries) {
+    const price = Number(itinerary?.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const legs = Array.isArray(itinerary.flights) ? itinerary.flights : [];
+    const airport = legs[0]?.departure_airport?.id;
+    if (!airport) continue;
+
+    if (byOrigin[airport] && byOrigin[airport].price <= price) continue;
+
+    byOrigin[airport] = {
+      price,
+      airlines: [...new Set(legs.map((leg) => leg.airline).filter(Boolean))],
+      stops: legs.length > 0 ? legs.length - 1 : null,
+      // Il link globale della risposta punta alla ricerca multi-aeroporto: per
+      // un aeroporto specifico serve una query mirata, altrimenti l'utente
+      // riapre la stessa ricerca e non ritrova l'offerta annunciata.
+      bookingUrl: buildGoogleFlightsFallbackUrl(airport, destination, outboundDate, returnDate),
+    };
+  }
+
+  return byOrigin;
 }
 
 /** Lowest positive numeric price across the returned itineraries. */

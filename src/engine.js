@@ -221,6 +221,8 @@ async function searchCandidate(candidate, trip, provider, context) {
   let searched = 0;
   let skippedForBudget = 0;
   let rejectedForDuration = 0;
+  /** Miglior prezzo per singolo aeroporto di partenza, su tutto il piano. */
+  const bestByOrigin = new Map();
 
   for (const slot of plan) {
     if (budget.remaining <= 0) {
@@ -253,6 +255,8 @@ async function searchCandidate(candidate, trip, provider, context) {
         continue;
       }
 
+      collectOriginOffers(bestByOrigin, quote);
+
       if (!best || quote.price < best.price) best = quote;
     } catch (error) {
       // Quota exhaustion is fatal for the run: bubble it up immediately.
@@ -263,7 +267,122 @@ async function searchCandidate(candidate, trip, provider, context) {
     }
   }
 
-  return { best, errors, searched, skippedForBudget, rejectedForDuration };
+  return { best, bestByOrigin, errors, searched, skippedForBudget, rejectedForDuration };
+}
+
+/**
+ * Fold one quote's per-airport prices into the running per-airport minimum.
+ *
+ * A provider that cannot break results down (`byOrigin` assente) still tells us
+ * one thing for certain: the winning airport's price for this date pair. That
+ * fallback keeps the breakdown honest — partial, never invented.
+ *
+ * @param {Map<string, object>} bestByOrigin  Mutated in place.
+ * @param {object} quote
+ */
+function collectOriginOffers(bestByOrigin, quote) {
+  const offers =
+    quote.byOrigin && Object.keys(quote.byOrigin).length > 0
+      ? quote.byOrigin
+      : { [quote.origin]: { price: quote.price, airlines: quote.airlines, stops: quote.stops, bookingUrl: quote.bookingUrl } };
+
+  for (const [airport, offer] of Object.entries(offers)) {
+    const price = Number(offer?.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    const previous = bestByOrigin.get(airport);
+    if (previous && previous.price <= price) continue;
+
+    bestByOrigin.set(airport, {
+      origin: airport,
+      price: round2(price),
+      outboundDate: quote.outboundDate,
+      returnDate: quote.returnDate,
+      durationDays: quote.durationDays,
+      airlines: offer.airlines ?? [],
+      stops: offer.stops ?? null,
+      bookingUrl: offer.bookingUrl ?? quote.bookingUrl ?? null,
+    });
+  }
+}
+
+/**
+ * Collapse per-airport minima into the origin groups declared on the trip.
+ *
+ * The ranking is decided by the absolute cheapest fare, which in practice is
+ * always the best-connected hub. That answers "how cheap can this trip be" but
+ * not "what does it cost from *my* airport" — so every configured group is
+ * reported, winner or not, including the ones that came back empty.
+ *
+ * @param {Map<string, object>} bestByOrigin
+ * @param {Array<{id:string,label:string,airports:string[]}>} groups
+ * @param {number|null} bestPrice  Cheapest fare overall, for the delta.
+ */
+export function buildOriginBreakdown(bestByOrigin, groups, bestPrice) {
+  if (!Array.isArray(groups) || groups.length === 0) return [];
+
+  return groups.map((group) => {
+    let winner = null;
+    for (const airport of group.airports) {
+      const offer = bestByOrigin.get(airport);
+      if (offer && (!winner || offer.price < winner.price)) winner = offer;
+    }
+
+    if (!winner) {
+      // Nessun itinerario da questi aeroporti nelle risposte del provider: non
+      // significa "non si vola", significa "fuori dai risultati restituiti".
+      return { id: group.id, label: group.label, airports: [...group.airports], status: 'no_data', price: null };
+    }
+
+    return {
+      id: group.id,
+      label: group.label,
+      airports: [...group.airports],
+      status: 'ok',
+      price: winner.price,
+      origin: winner.origin,
+      outboundDate: winner.outboundDate,
+      returnDate: winner.returnDate,
+      durationDays: winner.durationDays,
+      airlines: winner.airlines,
+      stops: winner.stops,
+      bookingUrl: winner.bookingUrl,
+      extraVsBest: Number.isFinite(bestPrice) ? round2(winner.price - bestPrice) : null,
+      isBest: Number.isFinite(bestPrice) ? round2(winner.price - bestPrice) === 0 : false,
+    };
+  });
+}
+
+/**
+ * Origin groups for a trip, with a sensible default when none are configured:
+ * one group per origin airport. Better a redundant breakdown than silently
+ * hiding the airports the user listed.
+ *
+ * @param {object} trip
+ */
+export function resolveOriginGroups(trip) {
+  const configured = Array.isArray(trip.originGroups) ? trip.originGroups : null;
+
+  const groups = (configured ?? trip.origins.map((airport) => ({ id: airport.toLowerCase(), label: airport, airports: [airport] })))
+    .map((group) => ({
+      id: String(group.id ?? group.airports?.[0] ?? '').toLowerCase(),
+      label: String(group.label ?? group.id ?? ''),
+      airports: (Array.isArray(group.airports) ? group.airports : [group.airports]).filter(Boolean),
+    }))
+    .filter((group) => group.id && group.airports.length > 0);
+
+  // Un aeroporto in `origins` ma in nessun gruppo verrebbe cercato e mai
+  // mostrato: meglio segnalarlo che lasciarlo sparire in silenzio.
+  const covered = new Set(groups.flatMap((group) => group.airports));
+  const orphans = trip.origins.filter((airport) => !covered.has(airport));
+  if (configured && orphans.length > 0) {
+    console.warn(
+      `⚠️  [${trip.id}] Aeroporti in "origins" ma in nessun gruppo di "originGroups": ${orphans.join(', ')}. ` +
+        'Verranno cercati ma non compariranno nel dettaglio per aeroporto.',
+    );
+  }
+
+  return groups;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +410,7 @@ export async function runTrip(trip, provider) {
   const maxCalls = Number(trip.sampling?.maxApiCallsPerRun) || plan.length * trip.candidates.length;
   const concurrency = Math.max(1, Number(trip.sampling?.concurrency) || 3);
   const budget = { remaining: maxCalls };
+  const originGroups = resolveOriginGroups(trip);
 
   console.log(
     `🔎 [${trip.id}] ${trip.candidates.length} destinazioni × ${plan.length} combinazioni date ` +
@@ -317,7 +437,7 @@ export async function runTrip(trip, provider) {
     }
 
     try {
-      const { best, errors, searched, skippedForBudget, rejectedForDuration } =
+      const { best, bestByOrigin, errors, searched, skippedForBudget, rejectedForDuration } =
         await searchCandidate(candidate, trip, provider, { plan, budget, currency, adults });
 
       const base = {
@@ -352,6 +472,7 @@ export async function runTrip(trip, provider) {
       }
 
       const economics = computeEconomics(best, candidate, trip);
+      const originBreakdown = buildOriginBreakdown(bestByOrigin, originGroups, best.price);
 
       // Deliberately never logs economics.maxDaysBudget: on a public repo, CI
       // logs are public too, and that uncapped figure combined with the
@@ -362,6 +483,11 @@ export async function runTrip(trip, provider) {
           `da ${best.origin} · ${best.outboundDate}→${best.returnDate} · ` +
           `${economics.maxDays}/${economics.maxTripDays} gg`,
       );
+
+      const breakdownLog = originBreakdown
+        .map((group) => `${group.label}: ${group.status === 'ok' ? `${group.price} ${currency}` : 'n/d'}`)
+        .join(' · ');
+      if (breakdownLog) console.log(`      🛫 ${breakdownLog}`);
 
       return {
         ...base,
@@ -375,6 +501,7 @@ export async function runTrip(trip, provider) {
         airlines: best.airlines ?? [],
         stops: best.stops ?? null,
         bookingUrl: best.bookingUrl ?? null,
+        originBreakdown,
         ...economics,
       };
     } catch (error) {
@@ -411,6 +538,7 @@ export async function runTrip(trip, provider) {
     departureWindow: { ...trip.departureWindow },
     tripDuration: { ...trip.tripDuration },
     origins: [...trip.origins],
+    originGroups,
     generatedAt: new Date().toISOString(),
     apiCallsUsed: maxCalls - budget.remaining,
     apiCallsBudget: maxCalls,

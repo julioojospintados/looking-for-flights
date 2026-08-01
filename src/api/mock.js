@@ -53,10 +53,31 @@ class MockProvider extends FlightProvider {
 
     const origin = origins[Math.floor(hash01(`${key}|origin`) * origins.length)] ?? origins[0];
 
+    // Ogni aeroporto ha il suo prezzo, con un sovrapprezzo deterministico su
+    // quelli che non hanno vinto: serve a esercitare il dettaglio per aeroporto
+    // (e a far vedere Torino nell'anteprima) senza rete né quota.
+    const byOrigin = {};
+    for (const airport of origins) {
+      // Un aeroporto secondario ogni tanto non compare nei risultati veri: il
+      // mock riproduce anche quel caso, altrimenti il ramo "n/d" non si testa.
+      if (airport !== origin && hash01(`${key}|${airport}|missing`) < 0.15) continue;
+
+      const surcharge = airport === origin ? 0 : Math.round(20 + hash01(`${key}|${airport}`) * 120);
+      byOrigin[airport] = {
+        price: price + surcharge,
+        airlines: ['MOCK'],
+        stops: 1,
+        bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(
+          `Flights from ${airport} to ${destination} on ${outboundDate} through ${returnDate}`,
+        )}`,
+      };
+    }
+
     return {
       price,
       currency,
       origin,
+      byOrigin,
       destination,
       outboundDate,
       returnDate,
