@@ -97,7 +97,12 @@ jobs:
         if: steps.poll.outputs.triggered == 'true'
         continue-on-error: true
         env:
-          BUDGET_ASIA_AUTUNNO_2026: ${{ secrets.BUDGET_ASIA_AUTUNNO_2026 }}
+          # Secret oppure variable: creare il valore nella tab sbagliata di
+          # "Secrets and variables" è l'errore più comune, e produceva un run
+          # fallito senza spiegazione. Il repo è privato, quindi una variable
+          # non è meno riservata di una secret; su repo pubblico invece una
+          # variable è leggibile da chiunque — lì usa la secret.
+          BUDGET_ASIA_AUTUNNO_2026: ${{ secrets.BUDGET_ASIA_AUTUNNO_2026 || vars.BUDGET_ASIA_AUTUNNO_2026 }}
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
           AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
@@ -107,7 +112,11 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           FLIGHT_PROVIDER: serpapi
           FORCE_NOTIFY: 'true'
-        run: npm start
+        # `pipefail` è obbligatorio con la pipe: senza, l'exit code sarebbe
+        # quello di `tee` (sempre 0) e un fallimento passerebbe per successo.
+        run: |
+          set -o pipefail
+          npm start 2>&1 | tee "${RUNNER_TEMP}/monitor.log"
 
       - name: Commit price snapshot
         if: steps.poll.outputs.triggered == 'true'
@@ -135,9 +144,10 @@ jobs:
       # step è fallito, e lo step precedente è proprio quello che trasforma
       # l'errore del monitor (continue-on-error) in un fallimento del job.
       #
-      # Il messaggio non riporta l'errore: i dettagli stanno nei log, e questo
-      # canale non deve diventare un posto dove può finire per sbaglio il
-      # contenuto di una variabile d'ambiente.
+      # Il messaggio riporta la riga di errore del monitor, non il log intero:
+      # "non è andata a buon fine" costringeva ad aprire GitHub per scoprire
+      # una cosa che si dice in una riga. Vengono estratte solo le righe che il
+      # programma emette apposta (prefisso ❌), mai l'ambiente o l'output grezzo.
       - name: Tell Telegram the on-demand search failed
         if: failure() && steps.poll.outputs.triggered == 'true'
         env:
@@ -145,7 +155,14 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -H 'Content-Type: application/json' \
-            -d "$(printf '{"chat_id":"%s","text":"❌ La ricerca non è andata a buon fine. Log del run: %s","disable_web_page_preview":true}' "${TELEGRAM_CHAT_ID}" "${RUN_URL}")" \
-            > /dev/null
+          REASON=$(grep -a '❌' "${RUNNER_TEMP}/monitor.log" 2>/dev/null | tail -1 | cut -c1-300)
+          [ -z "${REASON}" ] && REASON="❌ Il run si è interrotto prima della ricerca."
+          # printf per l'a capo: una newline scritta a mano dentro la stringa
+          # chiuderebbe il blocco YAML `run: |`.
+          TEXT=$(printf '%s\nLog del run: %s' "${REASON}" "${RUN_URL}")
+          # jq per costruire il JSON: il testo dell'errore contiene virgolette e
+          # parentesi che un printf a mano trasformerebbe in payload non valido.
+          jq -n --arg chat "${TELEGRAM_CHAT_ID}" --arg text "${TEXT}" \
+                '{chat_id: $chat, text: $text, disable_web_page_preview: true}' \
+            | curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -H 'Content-Type: application/json' -d @- > /dev/null

@@ -7,6 +7,54 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-01 — Una secret mancante non deve azzerare il servizio
+
+Quattro run consecutivi falliti con lo stesso messaggio:
+
+```
+❌ Errore fatale: BUDGET_ASIA_AUTUNNO_2026: valore non valido (""), deve essere un numero > 0.
+```
+
+La secret non era mai stata creata. Ma il messaggio diceva "valore non
+valido", che manda a cercare un errore di battitura in un valore che non
+esiste. Dietro c'era un bug vero:
+
+**GitHub Actions inietta una secret inesistente come stringa vuota**, non come
+variabile assente. Il codice controllava `raw === undefined` per decidere se
+usare il fallback su `config/trips.json`; con `""` quel controllo è falso, si
+finiva nel ramo "valore non valido", e il run moriva senza nemmeno provare il
+fallback. Ora vuoto e assente sono la stessa cosa: **non fornito**.
+
+Il secondo problema era la reazione: senza budget il monitor si rifiutava di
+partire. Corretto per un dato che potrebbe essere sbagliato — ma il budget qui
+o c'è o non c'è, e quando non c'è restano comunque i prezzi dei voli, che sono
+l'80% del valore di un `/cerca`. Ora il run **degrada invece di morire**:
+
+- classifica per solo prezzo del volo A/R;
+- avviso `⚠️ Budget non impostato` **in cima** alla notifica, non a piè di
+  pagina: chi legge deve saperlo prima dei numeri, non dopo;
+- `feasible: null` (non valutabile) resta distinto da `false` (valutato e
+  insufficiente) — un avviso "sotto la durata minima" inventato sarebbe stato
+  peggio di nessun avviso;
+- un valore *malformato* (`1500 EUR`) continua invece a far fallire il run:
+  quello è un refuso, non una scelta.
+
+Altre due cose imparate dallo stesso incidente:
+
+- **Il valore può stare nella tab sbagliata.** *Secrets and variables* ha due
+  tab e `secrets.X` non vede ciò che sta in *Variables*. I workflow ora leggono
+  `secrets.X || vars.X`. Il repo è privato, quindi una variable non è meno
+  riservata di una secret; su repo pubblico la nota resta valida solo per la
+  secret.
+- **"Non è andata a buon fine" non è un messaggio d'errore.** Il messaggio su
+  Telegram ora riporta la riga di errore vera del monitor, estratta dal log del
+  run filtrando le sole righe che il programma emette apposta (prefisso ❌).
+  Mai l'ambiente, mai l'output grezzo. Serve `set -o pipefail` sulla pipe verso
+  `tee`, altrimenti l'exit code sarebbe quello di `tee` e ogni fallimento
+  passerebbe per successo.
+
+---
+
 ## 2026-08-01 — "Ogni 15 minuti" non era vero
 
 Un `/cerca` delle 17:55 sembrava ignorato: nessun ack dopo undici minuti.

@@ -356,9 +356,12 @@ Convenzione del nome: `BUDGET_<ID-VIAGGIO-IN-MAIUSCOLO>` (i trattini diventano u
 BUDGET_ASIA_AUTUNNO_2026=2000   # esempio — usa il tuo importo reale
 ```
 
-- **In CI**: GitHub Secret con questo nome (vedi [Configura le GitHub Secrets](#5-configura-le-github-secrets)).
+- **In CI**: GitHub **Secret** con questo nome (vedi [Configura le GitHub Secrets](#5-configura-le-github-secrets)). Il workflow accetta anche una **Variable** con lo stesso nome (`secrets.X || vars.X`): creare il valore nella tab sbagliata di *Secrets and variables* è l'errore più comune, e non deve costare un pomeriggio di debug. Su repo pubblico però una variable è leggibile da chiunque — lì usa la secret.
 - **In locale**: riga in `.env` (vedi [.env.example](.env.example)), caricata con `node --env-file=.env src/index.js`.
-- **Senza questa variabile**, il monitor si ferma subito con un errore che indica esattamente quale impostare — non parte con un budget a caso.
+- **Senza budget** il monitor non si ferma più: cerca comunque i voli e produce una classifica **per solo prezzo**, dichiarandolo in cima alla notifica. Si perdono i giorni sostenibili e il costo totale, non la ricerca — che è l'80% del valore di un `/cerca`.
+- **Con un valore malformato** (`1500 EUR`, `€1500`) il run invece fallisce, e deve: quello è un refuso, non una scelta, e proseguire con un numero a caso sarebbe peggio.
+
+> ⚠️ Attenzione a come GitHub Actions passa le secret: una secret **inesistente** arriva al processo come **stringa vuota**, non come variabile assente. Il codice tratta quindi `""` come "non fornito" (→ modalità senza budget) e non come "valore non valido": è esattamente la distinzione che, quando mancava, faceva morire ogni run con un messaggio fuorviante.
 
 Se aggiungi un secondo viaggio in `trips`, aggiungi la sua variabile con lo stesso schema (`BUDGET_<SUO-ID>`) sia in CI sia in locale.
 
@@ -538,7 +541,8 @@ Nessuna modifica a `engine.js` o `index.js`.
 | `quota esaurita` | Ricerche SerpApi finite. Vedi [Consumo della quota API](#-consumo-della-quota-api-leggimi). |
 | Nessuna notifica ricevuta | Hai premuto **Start** sul bot? Le notifiche partono solo con variazioni rilevanti: prova `force_notify`. |
 | `chat not found` | `TELEGRAM_CHAT_ID` errato, oppure non hai mai scritto al bot. |
-| Arriva l'ack "🔍 Ricerca avviata" ma nessun risultato | Il run è fallito dopo l'ack. Causa più frequente: la secret `BUDGET_<TRIP_ID>` non esiste o è vuota, e il monitor si rifiuta di partire senza budget. Da oggi il bot ti manda un messaggio di errore col link ai log invece di restare zitto. |
+| Arriva l'ack "🔍 Ricerca avviata" ma nessun risultato | Il run è fallito dopo l'ack. Il bot ti manda ora la riga di errore vera con il link ai log, quindi parti da lì. |
+| Notifica con "⚠️ Budget non impostato" | La secret/variable `BUDGET_<TRIP_ID>` non esiste. La ricerca funziona lo stesso ma senza giorni sostenibili: creala per riavere la classifica completa. |
 | Il bot non risponde ai comandi | Quasi sempre è solo attesa: gli intervalli reali del poll sono 26-42 minuti, non 15. Verifica l'orario dell'ultimo run di **Telegram On-Demand Search** nella tab Actions: se è precedente al tuo messaggio, il comando è in coda. Per forzare: **Run workflow**. |
 | Il menu "/" non compare nella chat | Comandi mai pubblicati su Telegram: lancia **Run workflow** con `register_commands`, poi riapri la chat. |
 | `Conflict: can't use getUpdates while webhook is active` | Al bot è stato assegnato un webhook (da un altro progetto o da un test). Rimuovilo: `curl "https://api.telegram.org/bot<TOKEN>/deleteWebhook"`. |

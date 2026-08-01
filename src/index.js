@@ -127,11 +127,19 @@ function budgetEnvVarName(tripId) {
 function readBudgetOverride(trip, env) {
   const key = budgetEnvVarName(trip.id);
   const raw = env[key];
-  if (raw === undefined) return undefined;
+
+  // GitHub Actions inietta una secret inesistente come **stringa vuota**, non
+  // come variabile assente: `env.X` esiste ma vale "". Trattare "" come "valore
+  // non valido" faceva morire l'intero run con un messaggio fuorviante ("valore
+  // non valido") per quella che è in realtà una secret mai creata — e senza mai
+  // provare il fallback su config/trips.json. Vuoto = non fornito, punto.
+  if (raw === undefined || String(raw).trim() === '') return undefined;
 
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${key}: valore non valido ("${raw}"), deve essere un numero > 0.`);
+    throw new Error(
+      `${key}: valore non valido ("${raw}"), deve essere un numero > 0 (solo cifre: "1500", non "1500 EUR").`,
+    );
   }
   return parsed;
 }
@@ -289,6 +297,16 @@ export function renderMessage(trip, delta) {
   );
   push('', '');
 
+  // Dichiarato in cima e non a piè di pagina: chi legge deve sapere *prima*
+  // dei numeri che sta guardando una classifica per prezzo, non per giorni.
+  if (trip.budgetMissing) {
+    push(
+      '⚠️ <b>Budget non impostato</b> — classifica per solo prezzo del volo; giorni sostenibili e costo totale non calcolabili.',
+      '⚠️ Budget non impostato — classifica per solo prezzo del volo; giorni sostenibili e costo totale non calcolabili.',
+    );
+    push('', '');
+  }
+
   // Why you are receiving this message.
   push('<b>Perché ricevi questa notifica</b>', 'Perché ricevi questa notifica');
   for (const reason of delta.reasons) {
@@ -299,10 +317,10 @@ export function renderMessage(trip, delta) {
   // Ranking. Once several destinations can all afford the full trip they tie on
   // days, so the tie-break (total cost) is named in the header to avoid an
   // apparently arbitrary order.
-  push(
-    `<b>🏆 Classifica</b> — giorni sostenibili, poi costo totale`,
-    `🏆 Classifica — giorni sostenibili, poi costo totale`,
-  );
+  const criterio = trip.budgetMissing
+    ? 'prezzo del volo A/R'
+    : 'giorni sostenibili, poi costo totale';
+  push(`<b>🏆 Classifica</b> — ${criterio}`, `🏆 Classifica — ${criterio}`);
 
   const priced = trip.results.filter((result) => result.status === 'ok');
 
@@ -312,7 +330,9 @@ export function renderMessage(trip, delta) {
 
   for (const result of priced) {
     const medal = MEDALS[result.rank - 1] ?? `${result.rank}.`;
-    const feasibility = result.feasible ? '' : ' ⚠️ sotto la durata minima';
+    // `feasible === null` = non valutabile (nessun budget), diverso da `false`
+    // = valutato e insufficiente. Un avviso inventato sarebbe peggio di nessuno.
+    const feasibility = result.feasible === false ? ' ⚠️ sotto la durata minima' : '';
 
     push(
       `${medal} <b>${escapeHtml(result.name)}</b> (${result.hub})${feasibility}`,
@@ -322,22 +342,33 @@ export function renderMessage(trip, delta) {
       `   🛬 Volo A/R: <b>${result.price} ${cur}</b> da ${result.origin} · ${result.outboundDate} → ${result.returnDate}`,
       `   🛬 Volo A/R: ${result.price} ${cur} da ${result.origin} | ${result.outboundDate} → ${result.returnDate}`,
     );
-    // With the trip length capped, "21/21" is the common case; what separates
-    // destinations is the leftover budget, so it goes on the same line.
-    const giorni = result.budgetCoversFullTrip
-      ? `${result.maxDays}/${result.maxTripDays} gg pieni`
-      : `${result.maxDays}/${result.maxTripDays} gg (budget insufficiente per ${result.maxTripDays})`;
+    if (Number.isFinite(result.maxDays)) {
+      // With the trip length capped, "21/21" is the common case; what separates
+      // destinations is the leftover budget, so it goes on the same line.
+      const giorni = result.budgetCoversFullTrip
+        ? `${result.maxDays}/${result.maxTripDays} gg pieni`
+        : `${result.maxDays}/${result.maxTripDays} gg (budget insufficiente per ${result.maxTripDays})`;
 
-    push(
-      `   📅 <b>${giorni}</b> · 💸 ${result.groundCostPerDay} ${cur}/gg` +
-        (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
-      `   📅 ${giorni} | 💸 ${result.groundCostPerDay} ${cur}/gg` +
-        (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
-    );
-    push(
-      `   🧮 Totale ${result.standardDays} gg: <b>${result.totalCostStandard} ${cur}</b>`,
-      `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur}`,
-    );
+      push(
+        `   📅 <b>${giorni}</b> · 💸 ${result.groundCostPerDay} ${cur}/gg` +
+          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
+        `   📅 ${giorni} | 💸 ${result.groundCostPerDay} ${cur}/gg` +
+          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
+      );
+      push(
+        `   🧮 Totale ${result.standardDays} gg: <b>${result.totalCostStandard} ${cur}</b>`,
+        `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur}`,
+      );
+    } else {
+      // Il costo a terra resta un dato utile anche senza budget: dice quanto
+      // pesa ogni giorno in più, che è metà della decisione.
+      push(
+        `   💸 ${result.groundCostPerDay} ${cur}/gg a terra` +
+          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
+        `   💸 ${result.groundCostPerDay} ${cur}/gg a terra` +
+          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
+      );
+    }
 
     // Dettaglio per aeroporto di partenza. Il prezzo migliore in assoluto è
     // quasi sempre da Milano: senza questo blocco, chi parte da Torino non
@@ -526,14 +557,20 @@ async function main() {
       trip.budgetTotal = args.budgetOverride;
     }
 
+    // Senza budget si perde il calcolo dei giorni sostenibili, non la ricerca:
+    // i prezzi dei voli restano l'80% del valore di un /cerca. Fermare tutto
+    // qui significava rispondere "niente" a chi aspettava, quando la risposta
+    // utile era a una chiamata API di distanza. La mancanza viene dichiarata
+    // in cima alla notifica, così nessuno scambia una classifica per prezzo
+    // per una classifica per giorni.
     if (!Number.isFinite(Number(trip.budgetTotal)) || Number(trip.budgetTotal) <= 0) {
       const key = budgetEnvVarName(trip.id);
-      console.error(
-        `❌ [${trip.id}] Budget non impostato. Il budget è privato e non vive in config/trips.json: ` +
-          `imposta la variabile d'ambiente ${key} (GitHub Secret in CI, riga in .env in locale).`,
+      console.warn(
+        `⚠️  [${trip.id}] Budget non impostato: imposta ${key} (GitHub Secret o variabile in CI, ` +
+          `riga in .env in locale) oppure "budgetTotal" in config/trips.json. ` +
+          `Procedo con la classifica per solo prezzo del volo.`,
       );
-      hadFailure = true;
-      continue;
+      trip.budgetTotal = null;
     }
 
     let tripResult;
@@ -560,7 +597,8 @@ async function main() {
 
     console.log(
       winner
-        ? `🏆 Vincitore: ${winner.name} — ${winner.maxDays}/${winner.maxTripDays} giorni, ` +
+        ? `🏆 Vincitore: ${winner.name} — ` +
+          (Number.isFinite(winner.maxDays) ? `${winner.maxDays}/${winner.maxTripDays} giorni, ` : '') +
           `volo ${winner.price} ${tripResult.currency}`
         : '🏆 Nessun vincitore: nessun volo con prezzo valido.',
     );
@@ -603,8 +641,11 @@ async function main() {
         ...priced.map(
           (r) =>
             `| ${r.rank} | ${r.name} (${r.hub}) | ${r.price} ${tripResult.currency} | ${r.origin} | ` +
-            `${r.outboundDate} → ${r.returnDate} | **${r.maxDays}**/${r.maxTripDays} | ` +
-            `${r.totalCostStandard} ${tripResult.currency} |`,
+            `${r.outboundDate} → ${r.returnDate} | ` +
+            (Number.isFinite(r.maxDays) ? `**${r.maxDays}**/${r.maxTripDays}` : '—') +
+            ' | ' +
+            (Number.isFinite(r.totalCostStandard) ? `${r.totalCostStandard} ${tripResult.currency}` : '—') +
+            ' |',
         ),
       );
     } else {
