@@ -326,6 +326,20 @@ export function renderMessage(trip, delta) {
 
   if (priced.length === 0) {
     push('Nessun volo trovato in questa esecuzione.', 'Nessun volo trovato in questa esecuzione.');
+  } else {
+    // Tabella riassuntiva: vista d'insieme rapida prima del dettaglio riga per riga
+    // che segue. Rango in cifre (non medaglie) perché nei font monospace le emoji
+    // hanno larghezza variabile e disallineano le colonne.
+    const headers = ['#', 'Destinazione', 'Prezzo', 'Giorni', 'Totale'];
+    const rows = priced.map((result) => [
+      `${result.rank}`,
+      `${result.name} (${result.hub})`,
+      `${result.price} ${cur}`,
+      Number.isFinite(result.maxDays) ? `${result.maxDays}/${result.maxTripDays}` : '-',
+      Number.isFinite(result.maxDays) ? `${result.totalCostStandard} ${cur}` : '-',
+    ]);
+    const table = renderTable(headers, rows);
+    push(`<pre>${escapeHtml(table)}</pre>`, '```\n' + table + '\n```');
   }
 
   for (const result of priced) {
@@ -433,6 +447,21 @@ export function renderMessage(trip, delta) {
   );
 
   return { html: htmlLines.join('\n'), text: textLines.join('\n') };
+}
+
+/**
+ * Format rows as a left-aligned, pipe-separated monospace table.
+ * @param {string[]} headers
+ * @param {string[][]} rows
+ * @returns {string}
+ */
+function renderTable(headers, rows) {
+  const widths = headers.map((header, i) =>
+    Math.max(header.length, ...rows.map((row) => row[i].length)),
+  );
+  const formatRow = (cells) => cells.map((cell, i) => cell.padEnd(widths[i])).join(' | ');
+  const separator = widths.map((w) => '-'.repeat(w)).join('-+-');
+  return [formatRow(headers), separator, ...rows.map(formatRow)].join('\n');
 }
 
 function stripTags(value) {
