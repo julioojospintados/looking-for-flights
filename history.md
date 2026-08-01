@@ -7,6 +7,70 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-01 — Notifica in tabella, con il volo per intero
+
+La notifica diceva prezzo e date e si fermava lì. Ma "426 €" non basta per
+decidere: un volo con 11 ore di scalo notturno a Muscat e uno diretto allo
+stesso prezzo sono due viaggi diversi, e finora la differenza si scopriva solo
+aprendo Google Flights.
+
+Ora ogni destinazione riporta **compagnia, orario di partenza e di arrivo,
+durata porta a porta, numero di scali e durata di ciascuno scalo** — inclusa
+l'informazione se lo scalo scavalca la notte, che è la differenza fra
+aspettare e dover dormire da qualche parte.
+
+Costo in quota API: **zero**. Erano tutti dati già presenti nella stessa
+risposta di Google Flights, semplicemente scartati durante il parsing.
+
+Tre decisioni degne di nota:
+
+- **Solo l'andata ha gli orari.** Con `type=1` Google Flights restituisce le
+  opzioni di andata (il prezzo resta quello A/R completo); i dettagli del
+  ritorno arrivano solo da una seconda chiamata con `departure_token`, cioè
+  raddoppiando il consumo di quota per un dato che non cambia quale volo
+  conviene. Del ritorno resta la data, ed è dichiarato invece che lasciato
+  intendere.
+- **Gli orari non passano mai da `new Date()`.** Sono orari *locali
+  all'aeroporto* e senza fuso: interpretarli come date li sposterebbe di ore
+  in CI, dove il runner è in UTC. Vengono riformattati come stringhe.
+- **Ogni riga della tabella è opzionale.** Un provider che non espone gli
+  scali produce una tabella più corta, non una tabella piena di `n/d`:
+  mostrare il nulla in modo ordinato è peggio che non mostrarlo.
+
+### Perché tabelle e non elenchi
+
+Sei righe puntate per destinazione, per cinque destinazioni, obbligano a
+rileggere ogni riga per capire di cosa parla. Gli stessi numeri incolonnati si
+confrontano con lo sguardo — che è l'unica cosa che si fa davvero con una
+notifica sul telefono.
+
+Telegram non ha un markup di tabella: sono blocchi `<pre>` allineati a spazi.
+Da lì due vincoli non ovvi:
+
+1. **Un `<pre>` non va a capo, scorre in orizzontale.** Una riga troppo lunga
+   non si rompe: si nasconde. Da qui `MAX_TABLE_WIDTH` a 46 caratteri e il
+   troncamento dei nomi lunghi.
+2. **Un `<pre>` tagliato a metà non dà una tabella brutta, dà *nessuna
+   notifica*.** Telegram rifiuta l'intero messaggio con `can't parse entities`
+   se il markup non è bilanciato, e i messaggi oltre i 4096 caratteri vengono
+   spezzati. `splitMessage` ora richiude e riapre i blocchi sui pezzi.
+   Il primo tentativo contava i tag aperti e chiusi per pezzo: sbagliato, un
+   pezzo può avere un `</pre>` orfano all'inizio *e* un `<pre>` orfano alla
+   fine, con i conteggi che tornano pari nascondendo due rotture. Va guardato
+   l'**ordine** dei tag, portandosi dietro lo stato da un pezzo al successivo.
+   Il test l'ha preso al primo giro.
+
+### `MXP` non è un nome
+
+I codici IATA dicono qualcosa solo a chi vola spesso. Gli aeroporti italiani
+— quelli da cui si parte — sono ora la città stessa: `TRN` → Torino, `BGY` →
+Bergamo Orio. Dove una città ha più scali il nome li distingue, perché
+Malpensa e Linate non sono intercambiabili: cambiano come ci arrivi e quanto
+ci metti. Un codice sconosciuto resta il codice — meglio tre lettere oneste di
+un nome inventato o di uno spazio vuoto.
+
+---
+
 ## 2026-08-01 — Da polling a webhook: /cerca diventa davvero istantaneo
 
 Un `/cerca` delle 18:48 senza nessun ack, nemmeno dopo un po' — non un guasto,

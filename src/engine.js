@@ -284,7 +284,16 @@ function collectOriginOffers(bestByOrigin, quote) {
   const offers =
     quote.byOrigin && Object.keys(quote.byOrigin).length > 0
       ? quote.byOrigin
-      : { [quote.origin]: { price: quote.price, airlines: quote.airlines, stops: quote.stops, bookingUrl: quote.bookingUrl } };
+      : {
+          [quote.origin]: {
+            price: quote.price,
+            airlines: quote.airlines,
+            stops: quote.stops,
+            durationMinutes: quote.outboundDurationMinutes,
+            outbound: quote.outbound,
+            bookingUrl: quote.bookingUrl,
+          },
+        };
 
   for (const [airport, offer] of Object.entries(offers)) {
     const price = Number(offer?.price);
@@ -301,6 +310,8 @@ function collectOriginOffers(bestByOrigin, quote) {
       durationDays: quote.durationDays,
       airlines: offer.airlines ?? [],
       stops: offer.stops ?? null,
+      durationMinutes: offer.durationMinutes ?? null,
+      outbound: offer.outbound ?? null,
       bookingUrl: offer.bookingUrl ?? quote.bookingUrl ?? null,
     });
   }
@@ -346,6 +357,8 @@ export function buildOriginBreakdown(bestByOrigin, groups, bestPrice) {
       durationDays: winner.durationDays,
       airlines: winner.airlines,
       stops: winner.stops,
+      durationMinutes: winner.durationMinutes ?? null,
+      outbound: winner.outbound ?? null,
       bookingUrl: winner.bookingUrl,
       extraVsBest: Number.isFinite(bestPrice) ? round2(winner.price - bestPrice) : null,
       isBest: Number.isFinite(bestPrice) ? round2(winner.price - bestPrice) === 0 : false,
@@ -503,6 +516,8 @@ export async function runTrip(trip, provider) {
         durationDays: best.durationDays,
         airlines: best.airlines ?? [],
         stops: best.stops ?? null,
+        durationMinutes: best.outboundDurationMinutes ?? null,
+        outbound: best.outbound ?? null,
         bookingUrl: best.bookingUrl ?? null,
         originBreakdown,
         // Senza budget i campi economici restano null anziché sparire: chi

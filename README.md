@@ -19,6 +19,7 @@ Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più ec
 - [Riferimento configurazione](#-riferimento-configurazione)
   - [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico)
   - [Prezzo per aeroporto di partenza (originGroups)](#prezzo-per-aeroporto-di-partenza-origingroups)
+  - [Formato della notifica](#formato-della-notifica)
 - [Consumo della quota API](#-consumo-della-quota-api-leggimi)
 - [Cambiare provider](#-cambiare-provider)
 - [Troubleshooting](#-troubleshooting)
@@ -116,7 +117,10 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 │   │   ├── serpapi.js              # Implementazione SerpApi (Google Flights)
 │   │   ├── amadeus.js              # Implementazione Amadeus Self-Service
 │   │   └── mock.js                 # Provider offline per test (nessuna quota consumata)
-│   ├── utils/notifier.js           # Telegram + Slack
+│   ├── utils/
+│   │   ├── notifier.js             # Telegram + Slack
+│   │   ├── airports.js             # IATA → città (TRN → Torino)
+│   │   └── format.js               # Durate, orari, tabelle monospaziate
 │   ├── engine.js                   # Piano di ricerca, budget, classifica
 │   ├── index.js                    # Entry point: stato, delta, rendering, notifica
 │   └── telegram-commands.js        # Tabella comandi del bot — unica fonte di verità,
@@ -449,21 +453,49 @@ La classifica è decisa dal prezzo **più basso in assoluto**, che con Milano in
 `originGroups` risolve questo: ogni gruppo dichiarato compare **sempre** nella notifica, vincitore o no.
 
 ```
-🥇 India (Rajasthan) (DEL)
-   🛬 Volo A/R: 432 EUR da TRN | 2026-09-29 → 2026-10-20
-   📅 21/21 gg pieni | 💸 20 EUR/gg
-   🧮 Totale 21 gg: 852 EUR
-   🛫 Torino (TRN): 432 EUR · ✅ il migliore · 2026-09-29 → 2026-10-20
-   🛫 Milano (MXP): 447 EUR · +15 EUR · 2026-09-01 → 2026-09-15
+Partenze a confronto
+Da      Volo   Diff.  Durata
+Torino  432 €  —      15h 30m
+Milano  447 €  +15    13h 23m
 ```
 
-Il `+15 EUR` è il numero che serve davvero: è il prezzo dello scarto tra i due aeroporti, da confrontare con quanto costano treno e tempo per arrivare a Milano.
+Il `+15` è il numero che serve davvero: è il prezzo dello scarto tra i due aeroporti, da confrontare con quanto costano treno e tempo per arrivare a Milano. Accanto c'è la durata, perché a volte lo scarto si paga due volte — più caro *e* più lungo.
 
 **Non consuma ricerche extra.** Google Flights accetta `departure_id=MXP,BGY,TRN` in una sola chiamata e restituisce gli itinerari da tutti e tre: prima si teneva solo il più economico e si buttava il resto, ora la risposta viene raggruppata per aeroporto di partenza. Stesso identico consumo di quota. Con `amadeus` (che interroga un origine per volta) vale lo stesso, per costruzione.
 
 Un gruppo può indicare `non tra i risultati`: Google Flights tronca la lista, quindi un aeroporto molto più caro del vincitore a volte non compare. Significa "fuori dai risultati restituiti", **non** "nessun volo disponibile".
 
 Se ometti `originGroups`, ogni aeroporto di `origins` diventa un gruppo a sé.
+
+### Formato della notifica
+
+Il messaggio è fatto di **tabelle monospaziate**, non di elenchi puntati: sei righe per destinazione moltiplicate per cinque destinazioni costringono a rileggere ogni riga per capire di cosa parla, mentre gli stessi numeri incolonnati si confrontano con lo sguardo.
+
+```
+🏆 Classifica (per giorni, poi costo)
+#  Destinazione       Volo   Giorni
+1  India (Rajasthan)  432 €  21/21
+2  Vietnam Sud + Ca…  547 €  14/21
+
+🥇 India (Rajasthan) · Delhi
+Volo A/R   432 €
+Partenza   Torino 29/09 12:00
+Arrivo     Delhi 30/09 03:30
+Durata     15h 30m · 1 scalo
+Scalo      Istanbul · 5h 04m · notturno
+Compagnia  Turkish Airlines
+Ritorno    20/10 · 21 giorni
+Giorni     21/21 pieni
+Totale     852 € · 21 gg
+A terra    20 €/gg
+```
+
+Cose da sapere su questo formato:
+
+- **I codici IATA italiani diventano città**: `TRN` → Torino, `BGY` → Bergamo Orio. Dove una città ha più scali il nome li distingue (Malpensa e Linate non sono intercambiabili). Un codice sconosciuto resta il codice — meglio tre lettere oneste di un nome inventato. La mappa è in [src/utils/airports.js](src/utils/airports.js).
+- **Orari, durata e scali sono del solo viaggio di andata.** Con `type=1` Google Flights restituisce le opzioni di andata (il prezzo è comunque quello A/R completo); i dettagli del ritorno richiedono una seconda chiamata con `departure_token`, cioè il doppio della quota per un dato che non cambia quale volo conviene. Del ritorno si mostra quindi la data.
+- **Ogni riga è opzionale**: un provider che non espone gli scali produce una tabella più corta, non una tabella piena di `n/d`.
+- **Vincolo tecnico**: Telegram non ha un markup di tabella, quindi sono blocchi `<pre>` allineati a spazi. Un `<pre>` non va a capo — scorre in orizzontale — perciò ogni riga sta entro `MAX_TABLE_WIDTH` (46 caratteri). Quando un messaggio supera i 4096 caratteri di Telegram, `splitMessage` richiude e riapre i blocchi sui pezzi: un `<pre>` tagliato a metà non darebbe una tabella brutta, ma **nessuna notifica** (`can't parse entities`).
 
 ### Aggiungere un viaggio
 

@@ -184,5 +184,35 @@ export function splitMessage(message, limit) {
   }
 
   if (current) chunks.push(current);
-  return chunks;
+  return balancePreBlocks(chunks);
+}
+
+/**
+ * Richiude i `<pre>` rimasti aperti da un taglio, e li riapre nel pezzo dopo.
+ *
+ * Telegram rifiuta l'**intero** messaggio se il markup non è bilanciato: con
+ * le tabelle, un taglio a metà blocco non produce una tabella brutta ma
+ * *nessuna notifica*, con un errore `can't parse entities` difficile da
+ * ricondurre alla causa.
+ *
+ * Contare quanti tag aperti e chiusi ci sono nel pezzo non basta: un pezzo può
+ * contenere un `</pre>` orfano all'inizio *e* un `<pre>` orfano alla fine, e i
+ * conteggi tornerebbero pari nascondendo due rotture. Va guardato l'**ordine**
+ * dei tag, portandosi dietro lo stato da un pezzo al successivo.
+ *
+ * @param {string[]} chunks
+ */
+function balancePreBlocks(chunks) {
+  let insidePre = false;
+
+  return chunks.map((chunk) => {
+    let out = insidePre ? `<pre>${chunk}` : chunk;
+
+    let open = false;
+    for (const tag of out.match(/<\/?pre>/g) ?? []) open = tag === '<pre>';
+
+    if (open) out = `${out}</pre>`;
+    insidePre = open;
+    return out;
+  });
 }

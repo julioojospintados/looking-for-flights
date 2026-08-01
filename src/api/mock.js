@@ -63,15 +63,21 @@ class MockProvider extends FlightProvider {
       if (airport !== origin && hash01(`${key}|${airport}|missing`) < 0.15) continue;
 
       const surcharge = airport === origin ? 0 : Math.round(20 + hash01(`${key}|${airport}`) * 120);
+      const outbound = fakeItinerary(airport, destination, outboundDate, `${key}|${airport}`);
+
       byOrigin[airport] = {
         price: price + surcharge,
-        airlines: ['MOCK'],
-        stops: 1,
+        airlines: outbound.airlines,
+        stops: outbound.stops,
+        durationMinutes: outbound.durationMinutes,
+        outbound,
         bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(
           `Flights from ${airport} to ${destination} on ${outboundDate} through ${returnDate}`,
         )}`,
       };
     }
+
+    const outbound = byOrigin[origin]?.outbound ?? fakeItinerary(origin, destination, outboundDate, key);
 
     return {
       price,
@@ -82,15 +88,60 @@ class MockProvider extends FlightProvider {
       outboundDate,
       returnDate,
       durationDays,
-      airlines: ['MOCK'],
-      stops: 1,
-      outboundDurationMinutes: 900 + Math.round(hash01(`${key}|dur`) * 300),
+      airlines: outbound.airlines,
+      stops: outbound.stops,
+      outboundDurationMinutes: outbound.durationMinutes,
+      outbound,
       bookingUrl: `https://www.google.com/travel/flights?q=${encodeURIComponent(
         `Flights from ${origin} to ${destination} on ${outboundDate} through ${returnDate}`,
       )}`,
       provider: this.name,
     };
   }
+}
+
+/** Compagnie e scali plausibili sulle rotte Italia → Asia. */
+const FAKE_AIRLINES = ['Qatar Airways', 'Emirates', 'Turkish Airlines', 'Etihad', 'Oman Air'];
+const FAKE_HUBS = ['DOH', 'DXB', 'IST', 'AUH', 'MCT'];
+
+/**
+ * Itinerario finto ma coerente: orari che tornano con la durata, scalo con la
+ * sua attesa, volo che a volte arriva il giorno dopo. Serve a esercitare la
+ * formattazione della notifica (durate, scali, giorno successivo) senza rete.
+ */
+function fakeItinerary(origin, destination, outboundDate, seed) {
+  const direct = hash01(`${seed}|direct`) < 0.25;
+  const departureMinutes = 6 * 60 + Math.round(hash01(`${seed}|dep`) * 15) * 60;
+  const durationMinutes = (direct ? 480 : 780) + Math.round(hash01(`${seed}|dur`) * 300);
+
+  const airline = FAKE_AIRLINES[Math.floor(hash01(`${seed}|air`) * FAKE_AIRLINES.length)];
+  const hub = FAKE_HUBS[Math.floor(hash01(`${seed}|hub`) * FAKE_HUBS.length)];
+  const layoverMinutes = 60 + Math.round(hash01(`${seed}|lay`) * 300);
+
+  const departure = addMinutes(`${outboundDate} 00:00`, departureMinutes);
+  const arrival = addMinutes(departure, durationMinutes);
+
+  return {
+    departureAirport: origin,
+    departureTime: departure,
+    arrivalAirport: destination,
+    arrivalTime: arrival,
+    durationMinutes,
+    airlines: [airline],
+    flightNumbers: [`MK ${100 + Math.round(hash01(`${seed}|num`) * 800)}`],
+    stops: direct ? 0 : 1,
+    layovers: direct
+      ? []
+      : [{ airport: hub, durationMinutes: layoverMinutes, overnight: layoverMinutes > 300 }],
+  };
+}
+
+/** "2026-09-15 00:00" + minuti → "2026-09-15 10:35" (UTC, niente fusi nel mock). */
+function addMinutes(base, minutes) {
+  const [date, time] = String(base).split(' ');
+  const start = new Date(`${date}T${time ?? '00:00'}:00Z`);
+  const moved = new Date(start.getTime() + minutes * 60000);
+  return `${moved.toISOString().slice(0, 10)} ${moved.toISOString().slice(11, 16)}`;
 }
 
 /** FNV-1a hash normalised to [0, 1). */

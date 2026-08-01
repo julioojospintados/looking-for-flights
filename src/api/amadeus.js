@@ -133,9 +133,7 @@ class AmadeusProvider extends FlightProvider {
         if (!Number.isFinite(price) || price <= 0) continue;
 
         const outboundItinerary = offer.itineraries?.[0];
-        const segments = outboundItinerary?.segments ?? [];
-        const airlines = [...new Set(segments.map((s) => s.carrierCode).filter(Boolean))];
-        const stops = segments.length > 0 ? segments.length - 1 : null;
+        const outbound = describeItinerary(outboundItinerary);
         const bookingUrl = `https://www.google.com/travel/flights?q=${encodeURIComponent(
           `Flights from ${origin} to ${destination} on ${outboundDate} through ${returnDate}`,
         )}`;
@@ -143,7 +141,14 @@ class AmadeusProvider extends FlightProvider {
         // Il minimo per aeroporto si aggiorna sempre, anche quando questa
         // offerta non batte il record globale: sono due classifiche diverse.
         if (!byOrigin[origin] || price < byOrigin[origin].price) {
-          byOrigin[origin] = { price, airlines, stops, bookingUrl };
+          byOrigin[origin] = {
+            price,
+            airlines: outbound.airlines,
+            stops: outbound.stops,
+            durationMinutes: outbound.durationMinutes,
+            outbound,
+            bookingUrl,
+          };
         }
 
         if (best && price >= best.price) continue;
@@ -156,9 +161,10 @@ class AmadeusProvider extends FlightProvider {
           outboundDate,
           returnDate,
           durationDays,
-          airlines,
-          stops,
-          outboundDurationMinutes: parseIsoDuration(outboundItinerary?.duration),
+          airlines: outbound.airlines,
+          stops: outbound.stops,
+          outboundDurationMinutes: outbound.durationMinutes,
+          outbound,
           bookingUrl,
           provider: this.name,
         };
@@ -170,6 +176,63 @@ class AmadeusProvider extends FlightProvider {
 
     return best;
   }
+}
+
+/**
+ * Un itinerario Amadeus → la stessa forma neutra prodotta da SerpApi.
+ *
+ * Amadeus non espone gli scali come oggetti: sono il *buco* fra l'arrivo di
+ * una tratta e la partenza della successiva, e vanno calcolati. Qui gli orari
+ * sono ISO con offset (`2026-09-15T10:35:00`), quindi la differenza si può
+ * fare con Date senza rischio di fusi — a differenza delle stringhe locali
+ * che si mostrano poi a schermo.
+ *
+ * @param {object} itinerary
+ * @returns {import('./flightProvider.js').ItineraryDetails}
+ */
+function describeItinerary(itinerary) {
+  const segments = Array.isArray(itinerary?.segments) ? itinerary.segments : [];
+  const first = segments[0] ?? {};
+  const last = segments.at(-1) ?? {};
+
+  const layovers = [];
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const arrival = Date.parse(segments[index]?.arrival?.at ?? '');
+    const departure = Date.parse(segments[index + 1]?.departure?.at ?? '');
+    const durationMinutes =
+      Number.isFinite(arrival) && Number.isFinite(departure)
+        ? Math.round((departure - arrival) / 60000)
+        : null;
+
+    layovers.push({
+      airport: segments[index]?.arrival?.iataCode ?? null,
+      durationMinutes,
+      overnight:
+        Number.isFinite(arrival) && Number.isFinite(departure)
+          ? new Date(arrival).getUTCDate() !== new Date(departure).getUTCDate()
+          : false,
+    });
+  }
+
+  return {
+    departureAirport: first.departure?.iataCode ?? null,
+    departureTime: normaliseTime(first.departure?.at),
+    arrivalAirport: last.arrival?.iataCode ?? null,
+    arrivalTime: normaliseTime(last.arrival?.at),
+    durationMinutes: parseIsoDuration(itinerary?.duration),
+    airlines: [...new Set(segments.map((segment) => segment.carrierCode).filter(Boolean))],
+    flightNumbers: segments
+      .map((segment) => [segment.carrierCode, segment.number].filter(Boolean).join(' '))
+      .filter(Boolean),
+    stops: segments.length > 0 ? segments.length - 1 : null,
+    layovers,
+  };
+}
+
+/** "2026-09-15T10:35:00" -> "2026-09-15 10:35", il formato usato ovunque. */
+function normaliseTime(value) {
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(String(value ?? ''));
+  return match ? `${match[1]} ${match[2]}` : null;
 }
 
 /** "PT14H35M" -> 875 minutes. Returns null for anything unparseable. */
