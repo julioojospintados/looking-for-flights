@@ -6,7 +6,6 @@
       "tripName": "Asia Autunno 2026",
       "provider": "serpapi",
       "currency": "EUR",
-      "budgetTotal": 1500,
       "updatedAt": "2026-08-01T09:32:38.738Z",
       "winner": "india-rajasthan",
       "results": [
@@ -21,7 +20,6 @@
           "outboundDate": "2026-09-15",
           "returnDate": "2026-09-29",
           "maxDays": 21,
-          "maxDaysBudget": 53,
           "totalCostStandard": 846
         },
         {
@@ -35,7 +33,6 @@
           "outboundDate": "2026-09-29",
           "returnDate": "2026-10-20",
           "maxDays": 21,
-          "maxDaysBudget": 34,
           "totalCostStandard": 1131
         },
         {
@@ -49,7 +46,6 @@
           "outboundDate": "2026-09-29",
           "returnDate": "2026-10-13",
           "maxDays": 21,
-          "maxDaysBudget": 34,
           "totalCostStandard": 1137
         },
         {
@@ -63,7 +59,6 @@
           "outboundDate": "2026-09-01",
           "returnDate": "2026-09-22",
           "maxDays": 21,
-          "maxDaysBudget": 29,
           "totalCostStandard": 1224
         },
         {
@@ -77,7 +72,6 @@
           "outboundDate": "2026-09-01",
           "returnDate": "2026-09-15",
           "maxDays": 21,
-          "maxDaysBudget": 29,
           "totalCostStandard": 1233
         }
       ]
