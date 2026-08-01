@@ -46,12 +46,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -79,7 +79,7 @@ jobs:
         run: node src/telegram-poll.js
 
       - name: Commit updated Telegram offset
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'chore: update telegram offset [skip ci]'
           file_pattern: data/telegram_offset.json
@@ -111,7 +111,7 @@ jobs:
 
       - name: Commit price snapshot
         if: steps.poll.outputs.triggered == 'true'
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'chore: on-demand search via Telegram [skip ci]'
           file_pattern: data/last_prices.json
@@ -125,3 +125,27 @@ jobs:
         run: |
           echo "::error::La ricerca su richiesta ha segnalato errori. Controlla i log dello step 'Run monitor on demand'."
           exit 1
+
+      # Il bot ha già risposto "🔍 Ricerca avviata, risultati a breve...": se il
+      # run muore dopo l'ack, senza questo passo resti ad aspettare un
+      # risultato che non arriverà mai, e l'unico modo di accorgersene è aprire
+      # la tab Actions. Un ack senza esito è peggio di nessun ack.
+      #
+      # Va in fondo per forza: `failure()` diventa vero solo *dopo* che uno
+      # step è fallito, e lo step precedente è proprio quello che trasforma
+      # l'errore del monitor (continue-on-error) in un fallimento del job.
+      #
+      # Il messaggio non riporta l'errore: i dettagli stanno nei log, e questo
+      # canale non deve diventare un posto dove può finire per sbaglio il
+      # contenuto di una variabile d'ambiente.
+      - name: Tell Telegram the on-demand search failed
+        if: failure() && steps.poll.outputs.triggered == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H 'Content-Type: application/json' \
+            -d "$(printf '{"chat_id":"%s","text":"❌ La ricerca non è andata a buon fine. Log del run: %s","disable_web_page_preview":true}' "${TELEGRAM_CHAT_ID}" "${RUN_URL}")" \
+            > /dev/null

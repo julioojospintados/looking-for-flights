@@ -42,12 +42,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       # Nessuna dipendenza esterna: il progetto usa solo la standard library di
       # Node 20+ (fetch globale). Lo step resta per sicurezza se in futuro
@@ -84,7 +84,7 @@ jobs:
 
       - name: Commit price snapshot
         if: ${{ inputs.dry_run != true }}
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'chore: update flight price snapshot [skip ci]'
           file_pattern: data/last_prices.json
@@ -98,3 +98,21 @@ jobs:
         run: |
           echo "::error::Il monitor ha segnalato errori (quota API, volo non trovato o notifica fallita). Controlla i log dello step 'Run monitor'."
           exit 1
+
+      # Un run schedulato che fallisce è silenzioso per definizione: nessuno
+      # guarda la tab Actions due volte al giorno. Senza questo avviso, un
+      # secret scaduto o una quota finita si manifestano solo come notifiche
+      # che smettono di arrivare — indistinguibili da "i prezzi non sono
+      # cambiati". Deve stare dopo lo step qui sopra: `failure()` è vero solo
+      # una volta che un passo è effettivamente fallito.
+      - name: Tell Telegram the scheduled run failed
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H 'Content-Type: application/json' \
+            -d "$(printf '{"chat_id":"%s","text":"❌ Il monitoraggio programmato è fallito. Log del run: %s","disable_web_page_preview":true}' "${TELEGRAM_CHAT_ID}" "${RUN_URL}")" \
+            > /dev/null

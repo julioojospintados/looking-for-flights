@@ -123,7 +123,7 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 └── package.json                    # Zero dipendenze runtime
 ```
 
-**Zero dipendenze**: il progetto usa solo la standard library di Node 20+ (`fetch` globale incluso). Niente `npm install` da attendere in CI, niente supply chain da sorvegliare.
+**Zero dipendenze**: il progetto usa solo la standard library di Node 22+ (`fetch` globale incluso). Niente `npm install` da attendere in CI, niente supply chain da sorvegliare. La CI gira su Node 24 (LTS attiva); Node 20 è fuori supporto dal 30 aprile 2026 e non riceve più patch di sicurezza.
 
 ---
 
@@ -536,6 +536,7 @@ Nessuna modifica a `engine.js` o `index.js`.
 | `quota esaurita` | Ricerche SerpApi finite. Vedi [Consumo della quota API](#-consumo-della-quota-api-leggimi). |
 | Nessuna notifica ricevuta | Hai premuto **Start** sul bot? Le notifiche partono solo con variazioni rilevanti: prova `force_notify`. |
 | `chat not found` | `TELEGRAM_CHAT_ID` errato, oppure non hai mai scritto al bot. |
+| Arriva l'ack "🔍 Ricerca avviata" ma nessun risultato | Il run è fallito dopo l'ack. Causa più frequente: la secret `BUDGET_<TRIP_ID>` non esiste o è vuota, e il monitor si rifiuta di partire senza budget. Da oggi il bot ti manda un messaggio di errore col link ai log invece di restare zitto. |
 | Il bot non risponde ai comandi | La risposta non è istantanea: il poll gira ogni 15 minuti (e i cron GitHub possono accodarsi). Se dopo mezz'ora tace ancora, controlla l'ultimo run di **Telegram On-Demand Search** nella tab Actions. |
 | Il menu "/" non compare nella chat | Comandi mai pubblicati su Telegram: lancia **Run workflow** con `register_commands`, poi riapri la chat. |
 | `Conflict: can't use getUpdates while webhook is active` | Al bot è stato assegnato un webhook (da un altro progetto o da un test). Rimuovilo: `curl "https://api.telegram.org/bot<TOKEN>/deleteWebhook"`. |
