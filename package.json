@@ -13,7 +13,8 @@
     "mock": "node src/index.js --provider=mock --dry-run --budget=1000",
     "notify-test": "node src/index.js --provider=mock --force-notify --dry-run --budget=1000",
     "mete": "node scripts/sync-mete.js",
-    "mete:check": "node scripts/sync-mete.js --check"
+    "mete:check": "node scripts/sync-mete.js --check",
+    "telegram:commands": "node scripts/register-telegram-commands.js"
   },
   "keywords": [
     "flights",

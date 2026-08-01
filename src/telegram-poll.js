@@ -11,11 +11,19 @@
  * Stato persistito in data/telegram_offset.json: l'`update_id` più alto già
  * processato, così un comando non fa mai scattare due ricerche.
  *
- * Se un messaggio nella chat autorizzata contiene uno dei comandi in
- * TRIGGER_COMMANDS, questo script:
- *   1. manda subito un ack ("🔍 Ricerca avviata...") così l'attesa non è muta;
- *   2. scrive `triggered=true` in $GITHUB_OUTPUT, letto dal workflow per
- *      decidere se lanciare `npm start` subito dopo.
+ * I comandi riconosciuti sono in `src/telegram-commands.js`, condivisi con lo
+ * script che pubblica il menu "/" su Telegram. Ricevuto un comando nella chat
+ * autorizzata, questo script:
+ *   - `/cerca`, `/check` → manda un ack ("🔍 Ricerca avviata...") così l'attesa
+ *     non è muta, e scrive `triggered=true` in $GITHUB_OUTPUT, letto dal
+ *     workflow per decidere se lanciare `npm start` subito dopo;
+ *   - `/start`, `/help`  → risponde con le istruzioni, senza cercare nulla;
+ *   - altri slash-command → risponde che non esistono, elencando quelli veri.
+ *
+ * Un comando sconosciuto merita risposta quanto uno valido: un bot che tace
+ * sembra rotto, ed è esattamente il dubbio che fa riscrivere il comando a
+ * vuoto. Il testo libero invece resta ignorato — la chat deve poter essere
+ * usata anche per appunti senza che il bot risponda a ogni riga.
  *
  * Non lancia il monitor direttamente: resta un solo punto d'ingresso
  * (`src/index.js`), identico per cron giornaliero, run manuale e comando
@@ -26,11 +34,15 @@ import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  classifyCommand,
+  helpMessage,
+  sendMessage,
+  unknownCommandMessage,
+} from './telegram-commands.js';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATE_PATH = path.join(ROOT, 'data', 'telegram_offset.json');
-
-/** Case-insensitive; "/cerca@NomeDelBot" (menzione esplicita) è accettato. */
-const TRIGGER_COMMANDS = ['/cerca', '/check'];
 
 async function loadOffset(statePath) {
   try {
@@ -54,28 +66,6 @@ async function setActionOutput(name, value) {
   const outputPath = process.env.GITHUB_OUTPUT;
   if (!outputPath) return;
   await appendFile(outputPath, `${name}=${value}\n`, 'utf8');
-}
-
-/** @param {string} text */
-function matchesTrigger(text) {
-  const normalised = text.trim().toLowerCase();
-  return TRIGGER_COMMANDS.some((cmd) => normalised === cmd || normalised.startsWith(`${cmd}@`));
-}
-
-async function sendAck(token, chatId) {
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: '🔍 Ricerca avviata, risultati a breve...',
-      }),
-    });
-  } catch (error) {
-    // Un ack mancato non deve bloccare la ricerca vera: solo un warning.
-    console.warn(`⚠️  Ack Telegram non inviato: ${error.message}`);
-  }
 }
 
 async function main() {
@@ -109,6 +99,9 @@ async function main() {
 
   let maxUpdateId = lastUpdateId;
   let triggered = false;
+  let wantsHelp = false;
+  /** Il primo comando sconosciuto del lotto: si risponde una volta sola. */
+  let unknown = null;
 
   for (const update of updates) {
     maxUpdateId = Math.max(maxUpdateId, update.update_id);
@@ -117,17 +110,40 @@ async function main() {
     if (!message || String(message.chat?.id) !== String(chatId)) continue;
 
     const text = String(message.text ?? '');
-    if (matchesTrigger(text)) {
-      console.log(`✅ Comando "${text}" ricevuto — avvio ricerca.`);
-      triggered = true;
+
+    switch (classifyCommand(text)) {
+      case 'search':
+        console.log(`✅ Comando "${text}" ricevuto — avvio ricerca.`);
+        triggered = true;
+        break;
+      case 'help':
+        console.log(`ℹ️  Comando "${text}" ricevuto — rispondo con le istruzioni.`);
+        wantsHelp = true;
+        break;
+      case 'unknown':
+        console.log(`❓ Comando "${text}" sconosciuto.`);
+        unknown ??= text;
+        break;
+      default:
+        break; // Testo libero: nessuna risposta.
     }
   }
 
+  // Prima l'offset, poi le risposte: se l'invio fallisce si perde un messaggio,
+  // mentre l'ordine inverso rischierebbe di rieseguire il comando al giro dopo.
   await saveOffset(STATE_PATH, maxUpdateId);
 
-  if (triggered) await sendAck(token, chatId);
+  // Se nello stesso lotto c'è sia /cerca sia /help, l'ack va per primo: è la
+  // risposta al comando che ha davvero avviato qualcosa.
+  if (triggered) await sendMessage(token, chatId, '🔍 Ricerca avviata, risultati a breve...');
+  if (wantsHelp) await sendMessage(token, chatId, helpMessage());
+  // Un comando inesistente accanto a uno valido è quasi sempre un refuso già
+  // corretto: rispondere "non esiste" aggiungerebbe solo rumore.
+  if (unknown && !triggered && !wantsHelp) {
+    await sendMessage(token, chatId, unknownCommandMessage(unknown));
+  }
 
-  console.log(triggered ? '🔔 Trigger rilevato.' : '➖ Nessun comando riconosciuto tra i nuovi messaggi.');
+  console.log(triggered ? '🔔 Trigger rilevato.' : '➖ Nessuna ricerca da avviare.');
   await setActionOutput('triggered', String(triggered));
   return 0;
 }
