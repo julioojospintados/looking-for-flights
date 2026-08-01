@@ -283,7 +283,9 @@ ogni 15 minuti ──▶ GitHub controlla i messaggi nuovi del bot (getUpdates)
                       └─ testo libero        ──▶ ignorato in silenzio
 ```
 
-Scrivi `/cerca` (o `/check`) nella chat con il bot. Entro 15 minuti ricevi prima un ack ("🔍 Ricerca avviata..."), poi il risultato vero e proprio — **sempre**, anche se i prezzi non sono cambiati, perché un comando esplicito merita sempre una risposta.
+Scrivi `/cerca` (o `/check`) nella chat con il bot: ricevi prima un ack ("🔍 Ricerca avviata..."), poi il risultato vero e proprio — **sempre**, anche se i prezzi non sono cambiati, perché un comando esplicito merita sempre una risposta.
+
+⏱ **Quanto aspettare, davvero.** Il cron è `*/15`, ma GitHub accoda gli scheduled workflow sui runner condivisi e li dirada tanto più quanto sono frequenti: misurato su una giornata reale, gli intervalli effettivi stanno tra i 26 e i 42 minuti. Se l'ack non è ancora arrivato il comando è **in coda, non perso**. Per una risposta immediata: Actions → *Telegram On-Demand Search* → **Run workflow**, che esegue subito lo stesso identico job.
 
 ### Comandi del bot
 
@@ -537,7 +539,7 @@ Nessuna modifica a `engine.js` o `index.js`.
 | Nessuna notifica ricevuta | Hai premuto **Start** sul bot? Le notifiche partono solo con variazioni rilevanti: prova `force_notify`. |
 | `chat not found` | `TELEGRAM_CHAT_ID` errato, oppure non hai mai scritto al bot. |
 | Arriva l'ack "🔍 Ricerca avviata" ma nessun risultato | Il run è fallito dopo l'ack. Causa più frequente: la secret `BUDGET_<TRIP_ID>` non esiste o è vuota, e il monitor si rifiuta di partire senza budget. Da oggi il bot ti manda un messaggio di errore col link ai log invece di restare zitto. |
-| Il bot non risponde ai comandi | La risposta non è istantanea: il poll gira ogni 15 minuti (e i cron GitHub possono accodarsi). Se dopo mezz'ora tace ancora, controlla l'ultimo run di **Telegram On-Demand Search** nella tab Actions. |
+| Il bot non risponde ai comandi | Quasi sempre è solo attesa: gli intervalli reali del poll sono 26-42 minuti, non 15. Verifica l'orario dell'ultimo run di **Telegram On-Demand Search** nella tab Actions: se è precedente al tuo messaggio, il comando è in coda. Per forzare: **Run workflow**. |
 | Il menu "/" non compare nella chat | Comandi mai pubblicati su Telegram: lancia **Run workflow** con `register_commands`, poi riapri la chat. |
 | `Conflict: can't use getUpdates while webhook is active` | Al bot è stato assegnato un webhook (da un altro progetto o da un test). Rimuovilo: `curl "https://api.telegram.org/bot<TOKEN>/deleteWebhook"`. |
 | `nessun volo trovato` su tutte le rotte | Date troppo lontane (le compagnie pubblicano ~11 mesi prima) o codici IATA errati. |

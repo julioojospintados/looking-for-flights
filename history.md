@@ -7,6 +7,30 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-01 — "Ogni 15 minuti" non era vero
+
+Un `/cerca` delle 17:55 sembrava ignorato: nessun ack dopo undici minuti.
+Non era un guasto — il poller semplicemente non era ancora partito. Gli
+intervalli reali misurati su una giornata:
+
+```
+11:12 → 11:43 (31 min) → 12:11 (28) → 12:37 (26) → 13:11 (34)
+      → 13:52 (41) → 14:34 (42) → 15:09 (35) → 15:39 (30)   [UTC]
+```
+
+Il cron dice `*/15`, GitHub esegue ogni 26-42 minuti: accoda e dirada gli
+scheduled workflow sui runner condivisi, tanto più quanto sono frequenti.
+Abbassare l'intervallo non aiuta — verrebbe diradato di più.
+
+Il difetto era nella promessa, non nel codice: il messaggio di `/help` diceva
+"leggo i messaggi ogni 15 minuti circa", e quel numero trasformava un'attesa
+normale nel sospetto di un guasto. Ora `/help` e README dichiarano 15-45
+minuti, aggiungono che un ack mancante significa "in coda, non perso", e
+indicano la scorciatoia per chi non vuole aspettare: Actions → Run workflow,
+che esegue subito lo stesso job.
+
+---
+
 ## 2026-08-01 — Node 24 e fine dei fallimenti silenziosi
 
 ### Il bot mandava l'ack e poi spariva

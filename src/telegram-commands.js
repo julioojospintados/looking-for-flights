@@ -73,7 +73,7 @@ export function helpMessage() {
     '<b>Comandi</b>',
     menu,
     '',
-    '⏱ La ricerca su richiesta <b>non è istantanea</b>: leggo i messaggi ogni 15 minuti circa, poi la ricerca vera richiede qualche minuto. Ti mando un ack appena parte.',
+    '⏱ La ricerca su richiesta <b>non è istantanea</b>: il controllo dei messaggi è programmato ogni 15 minuti, ma GitHub accoda le esecuzioni e nella pratica passano <b>15-45 minuti</b>. Poi la ricerca vera richiede qualche minuto. Ti mando un ack appena parte: se non è ancora arrivato, il comando è in coda, non perso.',
   ].join('\n');
 }
 
