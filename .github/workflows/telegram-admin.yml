@@ -1,0 +1,43 @@
+name: Telegram Bot Admin
+
+# Utility manuale, non un cron: pubblica il menu "/" del bot su Telegram con
+# setMyCommands. È stato prima parte del workflow di polling (telegram-poll.yml),
+# ritirato quando /cerca è passato a un webhook Cloudflare Worker istantaneo
+# (vedi cloudflare-worker/README.md e history.md). Questa job non ha nulla a
+# che fare con l'ascolto dei comandi — resta qui solo perché il token del bot
+# è una GitHub Secret, così non serve averlo sulla propria macchina per
+# ripubblicare il menu.
+on:
+  workflow_dispatch:
+    inputs:
+      register_commands:
+        description: 'Ripubblica il menu comandi "/" del bot su Telegram'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  register:
+    name: Register Telegram command menu
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: inputs.register_commands
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Register Telegram command menu
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: npm run telegram:commands

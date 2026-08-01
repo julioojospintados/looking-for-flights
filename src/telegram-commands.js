@@ -73,7 +73,7 @@ export function helpMessage() {
     '<b>Comandi</b>',
     menu,
     '',
-    '⏱ La ricerca su richiesta <b>non è istantanea</b>: il controllo dei messaggi è programmato ogni 15 minuti, ma GitHub accoda le esecuzioni e nella pratica passano <b>15-45 minuti</b>. Poi la ricerca vera richiede qualche minuto. Ti mando un ack appena parte: se non è ancora arrivato, il comando è in coda, non perso.',
+    '⚡ La ricerca su richiesta parte <b>all\'istante</b>: appena scrivi ricevi subito l\'ack, poi il risultato vero entro qualche minuto (il tempo della ricerca). Se l\'ack non arriva, controlla che il webhook sia ancora attivo — vedi cloudflare-worker/README.md.',
   ].join('\n');
 }
 

@@ -1,0 +1,16 @@
+# Config di Cloudflare Workers. Le variabili elencate qui sotto sono solo
+# dichiarazioni di nome: i VALORI si impostano con `wrangler secret put`
+# (vedi README.md in questa cartella), mai scritti in questo file — sono
+# credenziali, e questo file è pensato per essere pubblico quanto il resto
+# del repo.
+
+name = "looking-for-flights-telegram-webhook"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# Popolate con `wrangler secret put <NOME>`:
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+#   TELEGRAM_WEBHOOK_SECRET
+#   GITHUB_TOKEN
+#   GITHUB_REPO       (es. "julioojospintados/looking-for-flights")

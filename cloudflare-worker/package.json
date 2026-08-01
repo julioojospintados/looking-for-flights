@@ -1,0 +1,15 @@
+{
+  "name": "looking-for-flights-telegram-webhook",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Webhook Cloudflare Worker: riceve i messaggi Telegram all'istante e fa partire monitor.yml su GitHub Actions. Vedi README.md per il deploy.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secrets": "echo 'Usa: wrangler secret put <NOME> — vedi README.md'"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

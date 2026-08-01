@@ -7,6 +7,51 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-01 — Da polling a webhook: /cerca diventa davvero istantaneo
+
+Un `/cerca` delle 18:48 senza nessun ack, nemmeno dopo un po' — non un guasto,
+lo stesso sintomo già descritto in *"Ogni 15 minuti" non era vero* qualche riga
+più sotto, ma stavolta il polling misurato (26-42 minuti reali) non bastava
+più: un'attesa a due cifre di minuti per sapere se un comando è partito non è
+"su richiesta", è un cron travestito.
+
+Il polling non poteva essere accorciato oltre un certo punto: **non è GitHub
+che è lento, è che nulla può restare in ascolto 24/7 senza controllare a
+intervalli**, e ogni intervallo, per quanto breve, resta un'attesa minima
+strutturale, non un dettaglio di tuning. L'unico modo per avere zero attesa è
+capovolgere il flusso: non "qualcosa controlla se hai scritto", ma "Telegram
+avvisa nell'istante in cui scrivi" — un webhook, non un poller.
+
+Un webhook richiede un endpoint HTTPS raggiungibile in ogni istante. GitHub
+Actions non lo è: un runner esiste solo mentre un job gira. Da qui la prima
+vera eccezione architetturale del progetto — un **Cloudflare Worker**
+(`cloudflare-worker/`), l'unico pezzo che vive fuori da GitHub. Era la strada
+scartata all'inizio per restare senza dipendenze esterne; ma "senza
+dipendenze esterne" e "immediato" si sono rivelati incompatibili, e stavolta
+a scegliere è stato chi usa il bot, non chi lo scrive.
+
+Il Worker fa solo da citofono: riceve il messaggio, verifica che sia dalla
+chat autorizzata (header `X-Telegram-Bot-Api-Secret-Token`, impostato con
+`setWebhook`), manda l'ack, e chiama `workflow_dispatch` sullo stesso
+`monitor.yml` di sempre — stessa ricerca, stesso snapshot, stesso avviso di
+fallimento. Zero logica duplicata: importa direttamente
+`src/telegram-commands.js`, che non usa alcuna API di Node (solo `fetch`),
+quindi gira identico sul runtime V8 dei Workers e su Node.
+
+**Conseguenza tecnica non ovvia**: un webhook attivo e `getUpdates` sono
+mutuamente esclusivi — Telegram consegna gli aggiornamenti o all'uno o
+all'altro, mai a entrambi. Il polling non poteva restare come fallback
+"nel dubbio": andava ritirato per davvero. Rimossi `telegram-poll.yml`,
+`src/telegram-poll.js` e lo stato `data/telegram_offset.json` che gli serviva
+— tutti recuperabili dalla history di git se mai servisse tornare indietro.
+Sopravvive un workflow ridotto all'osso, `telegram-admin.yml`, per l'unica
+cosa che non c'entra con l'ascolto: ripubblicare il menu "/" dei comandi.
+
+Aggiornato anche `/help`, che prometteva "15-45 minuti": una promessa sbagliata
+è peggio di nessuna promessa, e ora dice semplicemente "istantaneo".
+
+---
+
 ## 2026-08-01 — Una secret mancante non deve azzerare il servizio
 
 Quattro run consecutivi falliti con lo stesso messaggio:
