@@ -1,0 +1,112 @@
+name: Telegram On-Demand Search
+
+# Il bot Telegram manda messaggi ma non ne riceve: questo workflow è
+# l'"ascolto" mancante. Ogni 15 minuti controlla se hai scritto /cerca al bot
+# — un controllo leggero (una chiamata getUpdates), non una ricerca voli: non
+# consuma quota SerpApi. Solo se trova il comando lancia una ricerca vera con
+# lo stesso entry point del cron giornaliero (src/index.js) — nessuna logica
+# duplicata.
+#
+# Perché non è "zero chiamate finché non scrivo /cerca": senza qualcosa che
+# controlli periodicamente, non c'è modo di sapere che hai scritto qualcosa —
+# GitHub Actions non può restare in ascolto 24/7 di suo. Un vero "zero
+# finché non lo usi" richiederebbe un piccolo servizio esterno sempre attivo
+# (es. Cloudflare Worker) come webhook Telegram, fuori da GitHub: è la
+# strada scartata in origine per restare senza dipendenze esterne.
+#
+# Costo: ~96 run/giorno da pochi secondi l'uno. Su repo pubblico i minuti
+# Actions sono illimitati; su repo privato rientrano nel piano gratuito solo
+# se non già saturato dal resto — vedi todo.md.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Stesso group di monitor.yml: i due workflow scrivono entrambi su file
+# committati (data/telegram_offset.json, data/last_prices.json) e non devono
+# mai girare in parallelo, altrimenti git-auto-commit-action rischia un
+# conflitto di push.
+concurrency:
+  group: flight-monitor
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    name: Check for /cerca command
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Un blip momentaneo (rete, rate limit di Telegram) si autocorregge da
+      # solo al giro successivo tra 10 minuti: non deve marcare il job come
+      # fallito, altrimenti ogni intoppo transitorio diventa un'icona rossa
+      # nella cronologia delle Actions.
+      - name: Poll Telegram for a command
+        id: poll
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node src/telegram-poll.js
+
+      - name: Commit updated Telegram offset
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: update telegram offset [skip ci]'
+          file_pattern: data/telegram_offset.json
+          branch: main
+          commit_user_name: github-actions[bot]
+          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+      # Da qui in poi: stessi passi di monitor.yml, ma solo se il comando è
+      # stato riconosciuto. Nessuna logica di ricerca duplicata — è lo stesso
+      # `npm start`, solo con FORCE_NOTIFY sempre attivo (un comando esplicito
+      # merita sempre una risposta, anche "nessuna variazione").
+      - name: Run monitor on demand
+        id: monitor
+        if: steps.poll.outputs.triggered == 'true'
+        continue-on-error: true
+        env:
+          BUDGET_ASIA_AUTUNNO_2026: ${{ secrets.BUDGET_ASIA_AUTUNNO_2026 }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
+          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          AMADEUS_ENV: ${{ vars.AMADEUS_ENV || 'test' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          FLIGHT_PROVIDER: serpapi
+          FORCE_NOTIFY: 'true'
+        run: npm start
+
+      - name: Commit price snapshot
+        if: steps.poll.outputs.triggered == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: on-demand search via Telegram [skip ci]'
+          file_pattern: data/last_prices.json
+          branch: main
+          commit_user_name: github-actions[bot]
+          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+      - name: Fail the job if the monitor errored
+        if: steps.monitor.outcome == 'failure'
+        run: |
+          echo "::error::La ricerca su richiesta ha segnalato errori. Controlla i log dello step 'Run monitor on demand'."
+          exit 1

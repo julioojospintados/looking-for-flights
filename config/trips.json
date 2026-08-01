@@ -14,7 +14,7 @@
       "id": "asia-autunno-2026",
       "name": "Asia Autunno 2026",
       "enabled": true,
-      "budgetTotal": 1500,
+      "_comment_budget": "Il budget è privato: non va qui. Viene letto a runtime dalla env var BUDGET_ASIA_AUTUNNO_2026 (GitHub Secret in CI, .env in locale) — vedi .env.example. Senza quella variabile il monitor si rifiuta di partire.",
       "currency": "EUR",
       "adults": 1,
 

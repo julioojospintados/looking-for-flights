@@ -2,7 +2,7 @@
 
 Monitoraggio automatico dei prezzi dei voli con **classifica per giorni di viaggio sostenibili a budget fisso**.
 
-Ogni giorno una GitHub Action cerca il volo A/R più economico verso ogni destinazione candidata, calcola quanti giorni potresti restare a terra con il budget residuo, ordina le destinazioni e ti scrive su Telegram **solo quando c'è davvero qualcosa da sapere**.
+Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più economico verso ogni destinazione candidata, calcola quanti giorni potresti restare a terra con il budget residuo, ordina le destinazioni e ti scrive su Telegram **solo quando c'è davvero qualcosa da sapere** — oppure scrivi `/cerca` al bot per farla partire quando vuoi tu.
 
 > **Architettura "Engine + Config"** — tutta la logica di dominio vive in [config/trips.json](config/trips.json). Per monitorare un viaggio completamente diverso (altre date, altro budget, altre destinazioni) non si tocca una riga di codice.
 
@@ -14,7 +14,9 @@ Ogni giorno una GitHub Action cerca il volo A/R più economico verso ogni destin
 - [Struttura del progetto](#-struttura-del-progetto)
 - [Setup passo-passo](#-setup-passo-passo)
 - [Esecuzione locale](#-esecuzione-locale)
+- [Ricerca su richiesta: comando /cerca su Telegram](#ricerca-su-richiesta-comando-cerca-su-telegram)
 - [Riferimento configurazione](#-riferimento-configurazione)
+  - [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico)
 - [Consumo della quota API](#-consumo-della-quota-api-leggimi)
 - [Cambiare provider](#-cambiare-provider)
 - [Troubleshooting](#-troubleshooting)
@@ -46,17 +48,19 @@ La classifica è ordinata per **`giorni` decrescente**, con il **costo totale cr
 
 > ⚠️ **Conseguenza del cap**: quando più mete hanno budget sufficiente per il viaggio pieno, arrivano tutte a `21/21` e la classifica finisce decisa interamente dallo spareggio sul costo. È il comportamento corretto — a 21 giorni pieni la domanda non è più "quanto posso restare" ma "quanto mi avanza" — ma è utile saperlo quando leggi la notifica.
 
-Esempio con prezzi reali (31 lug 2026, budget 1500 €):
+Esempio con prezzi reali (31 lug 2026):
 
-| Destinazione | Volo A/R | Spesa/gg | Extra | Giorni | Budget per | Totale 21 gg | Avanzano |
-|---|---|---|---|---|---|---|---|
-| 🥇 India (DEL) | 506,40 € | 20 € | 0 € | **21/21** | 49 gg | 926,40 € | 573,60 € |
-| 🥈 Indonesia (CGK) | 468,80 € | 27 € | 70 € | **21/21** | 35 gg | 1105,80 € | 394,20 € |
-| 🥉 Vietnam (SGN) | 502,95 € | 27 € | 60 € | **21/21** | 34 gg | 1129,95 € | 370,05 € |
-| 4 Malesia (KUL) | 512,53 € | 33 € | 0 € | **21/21** | 29 gg | 1205,53 € | 294,47 € |
-| 5 Thailandia (BKK) | 546,43 € | 30 € | 55 € | **21/21** | 29 gg | 1231,43 € | 268,57 € |
+| Destinazione | Volo A/R | Spesa/gg | Extra | Giorni | Totale 21 gg |
+|---|---|---|---|---|---|
+| 🥇 India (DEL) | 506,40 € | 20 € | 0 € | **21/21** | 926,40 € |
+| 🥈 Indonesia (CGK) | 468,80 € | 27 € | 70 € | **21/21** | 1105,80 € |
+| 🥉 Vietnam (SGN) | 502,95 € | 27 € | 60 € | **21/21** | 1129,95 € |
+| 4 Malesia (KUL) | 512,53 € | 33 € | 0 € | **21/21** | 1205,53 € |
+| 5 Thailandia (BKK) | 546,43 € | 30 € | 55 € | **21/21** | 1231,43 € |
 
 Il volo più economico è Giacarta, ma vince l'India perché costa 7 €/giorno in meno a terra: **la spesa giornaliera pesa più del volo**. Quando il budget non basta per i 21 giorni pieni, la notifica lo dice: `10/21 gg (budget insufficiente per 21)`.
+
+> Né la notifica né questo README mostrano mai il budget stesso, i giorni "teorici" (`giorniBudget`, non tagliati a 21) o il margine residuo: combinati con spesa/gg e volo — entrambi pubblici — rivelerebbero il budget esatto. È per questo che il budget non vive in `config/trips.json`: vedi [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico).
 
 ### Quando arriva la notifica
 
@@ -73,7 +77,7 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 ### Il ciclo giornaliero
 
 ```
-07:00 UTC ──▶ GitHub Action
+07:00 e 17:00 UTC ──▶ GitHub Action
                 │
                 ├─▶ legge config/trips.json
                 ├─▶ interroga il provider voli (SerpApi / Amadeus)
@@ -90,9 +94,16 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 
 ```text
 .
-├── .github/workflows/monitor.yml   # Cron giornaliero + trigger manuale
-├── config/trips.json               # ⭐ L'unico file da modificare per un nuovo viaggio
-├── data/last_prices.json           # Stato persistente (committato dalla Action)
+├── .github/workflows/
+│   ├── monitor.yml                 # Cron giornaliero + trigger manuale
+│   └── telegram-poll.yml           # Ascolta /cerca su Telegram ogni 15 minuti
+├── config/
+│   ├── trips.json                  # ⭐ L'unico file da modificare per un nuovo viaggio
+│   └── mete.txt                    # Via rapida per aggiungere/togliere destinazioni
+├── data/
+│   ├── last_prices.json            # Stato prezzi (committato dalla Action)
+│   └── telegram_offset.json        # Ultimo comando Telegram già letto
+├── scripts/sync-mete.js            # Applica config/mete.txt a config/trips.json
 ├── src/
 │   ├── api/
 │   │   ├── flightProvider.js       # Contratto generico + factory + HTTP con retry
@@ -101,7 +112,8 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 │   │   └── mock.js                 # Provider offline per test (nessuna quota consumata)
 │   ├── utils/notifier.js           # Telegram + Slack
 │   ├── engine.js                   # Piano di ricerca, budget, classifica
-│   └── index.js                    # Entry point: stato, delta, rendering, notifica
+│   ├── index.js                    # Entry point: stato, delta, rendering, notifica
+│   └── telegram-poll.js            # Ascolto comandi Telegram (getUpdates)
 ├── .env.example
 └── package.json                    # Zero dipendenze runtime
 ```
@@ -187,6 +199,7 @@ I canali sono indipendenti: se uno fallisce, l'altro viene comunque tentato. Se 
 
 | Secret | Obbligatorio | Descrizione |
 |---|---|---|
+| `BUDGET_ASIA_AUTUNNO_2026` | ✅ | Il tuo budget reale — vedi [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico) |
 | `SERPAPI_KEY` | ✅ (con provider serpapi) | Chiave SerpApi |
 | `TELEGRAM_BOT_TOKEN` | ⬜ | Token da @BotFather |
 | `TELEGRAM_CHAT_ID` | ⬜ | Il tuo id numerico |
@@ -238,6 +251,40 @@ Copia prima `.env.example` in `.env` e riempi i valori.
 | `--config=<path>` | File di configurazione alternativo |
 | `--state=<path>` | File di stato alternativo |
 | `--trip=<id>` | Esegue un solo viaggio dalla config |
+| `--budget=<numero>` | Solo per test locali: forza il budget senza passare dalla env var (usato da `npm run mock`/`notify-test`) |
+
+---
+
+## Ricerca su richiesta: comando /cerca su Telegram
+
+Oltre al cron di mattina e sera (07:00 e 17:00 UTC), puoi far partire una ricerca quando vuoi tu, in due modi.
+
+### Da GitHub (istantaneo, già pronto)
+
+**Actions** → **Flight Price Monitor** → **Run workflow**. Nessuna configurazione aggiuntiva: è lo stesso pulsante usato per il primo test. Funziona anche dall'app GitHub su telefono.
+
+### Scrivendo `/cerca` al bot Telegram
+
+Il bot normalmente **manda** messaggi ma non li **riceve**: per fargli ascoltare un comando serve qualcosa che controlli periodicamente se hai scritto qualcosa. Questo progetto lo fa con un secondo workflow, [.github/workflows/telegram-poll.yml](.github/workflows/telegram-poll.yml):
+
+```
+ogni 15 minuti ──▶ GitHub controlla i messaggi nuovi del bot (getUpdates)
+                      │
+                      ├─ hai scritto "/cerca" o "/check"? ──▶ 🔍 ack immediato
+                      │                                        + ricerca vera (npm start)
+                      │                                        + notifica col risultato
+                      └─ nient'altro (es. /start, chiacchiere) ──▶ ignorato
+```
+
+Scrivi `/cerca` (o `/check`) nella chat con il bot. Entro 15 minuti ricevi prima un ack ("🔍 Ricerca avviata..."), poi il risultato vero e proprio — **sempre**, anche se i prezzi non sono cambiati, perché un comando esplicito merita sempre una risposta.
+
+Nessuna secret nuova: riusa `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` già configurate. Solo i messaggi dalla chat autorizzata (`TELEGRAM_CHAT_ID`) vengono considerati.
+
+**Stato**: `data/telegram_offset.json` tiene traccia dell'ultimo messaggio già letto, così lo stesso comando non fa mai partire due ricerche. È committato in git dallo stesso meccanismo di `data/last_prices.json` — non contiene nulla di sensibile (solo un numero incrementale di Telegram).
+
+**Perché non è "zero controlli finché non scrivo /cerca"**: senza qualcosa che controlli a intervalli, non c'è modo che GitHub si accorga del messaggio — le Actions non restano in ascolto 24/7 di loro iniziativa. Uno "zero" vero richiederebbe un piccolo servizio esterno sempre attivo come webhook Telegram (es. Cloudflare Worker), fuori da GitHub: la strada scartata all'inizio per restare senza dipendenze esterne. Il controllo stesso è comunque leggero — una chiamata `getUpdates`, non una ricerca voli — e non consuma quota SerpApi.
+
+> ⚠️ **Costo in minuti Actions**: il polling gira ~96 volte al giorno (ogni run dura pochi secondi). Su repository **pubblico** i minuti sono illimitati sui runner standard. Su repository **privato** rientrano nel piano gratuito solo se non è già saturato da altro — vedi la nota in `todo.md` se il repo non è ancora pubblico.
 
 ---
 
@@ -274,6 +321,31 @@ Modifiche:
 
 > L'identità di una meta è il **codice HUB**: puoi rinominarla o cambiarne i costi senza perdere lo storico dei prezzi. Cambiare l'HUB invece equivale a crearne una nuova.
 
+### Budget: privato anche a repo pubblico
+
+`config/trips.json` è pensato per essere pubblico: destinazioni, aeroporti, date e costi giornalieri sono informazioni di viaggio, non dati sensibili. Il **budget totale no** — è l'unico numero personale, quindi non vive nel file versionato: viene letto a runtime da una variabile d'ambiente.
+
+Convenzione del nome: `BUDGET_<ID-VIAGGIO-IN-MAIUSCOLO>` (i trattini diventano underscore). Per il viaggio di esempio, id `asia-autunno-2026`:
+
+```bash
+BUDGET_ASIA_AUTUNNO_2026=2000   # esempio — usa il tuo importo reale
+```
+
+- **In CI**: GitHub Secret con questo nome (vedi [Configura le GitHub Secrets](#5-configura-le-github-secrets)).
+- **In locale**: riga in `.env` (vedi [.env.example](.env.example)), caricata con `node --env-file=.env src/index.js`.
+- **Senza questa variabile**, il monitor si ferma subito con un errore che indica esattamente quale impostare — non parte con un budget a caso.
+
+Se aggiungi un secondo viaggio in `trips`, aggiungi la sua variabile con lo stesso schema (`BUDGET_<SUO-ID>`) sia in CI sia in locale.
+
+Per lo stesso motivo, notifica, log e job summary **non mostrano mai**:
+- il budget stesso;
+- i "giorni teorici" (`maxDaysBudget`, il valore non tagliato a 21) — combinato con la spesa/giorno e il prezzo del volo, entrambi pubblici, permetterebbe di ricalcolare il budget esatto;
+- il margine residuo (`avanzano X €`) — stesso motivo, combinato col costo totale mostrato.
+
+Restano visibili giorni sostenibili (già tagliati a 21), prezzo del volo e costo totale del viaggio: sono l'informazione utile, senza rivelare quanto avevi messo da parte.
+
+`npm run mock` e `npm run notify-test` funzionano senza impostare nulla: usano `--budget=1000`, un valore di comodo passato da riga di comando solo per i test (mai committato come parte della config reale).
+
 ### Configurazione completa
 
 [config/trips.json](config/trips.json) contiene `defaults` (validi per tutti i viaggi) e un array `trips`.
@@ -294,7 +366,8 @@ Modifiche:
       "id": "asia-autunno-2026",     // chiave usata nello snapshot: non cambiarla a cuor leggero
       "name": "Asia Autunno 2026",
       "enabled": true,               // false = saltato senza rimuoverlo
-      "budgetTotal": 1500,           // budget complessivo, volo incluso
+      // "budgetTotal" NON va qui — è privato, vedi la sezione sopra.
+      // Letto a runtime dalla env var BUDGET_ASIA_AUTUNNO_2026.
       "currency": "EUR",
       "adults": 1,
 
@@ -349,7 +422,7 @@ Il numero di ricerche per run è:
 ricerche = destinazioni × date_di_partenza_campionate × durate_testate
 ```
 
-Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche per run**, cioè **~1800 al mese** con il cron giornaliero. Il piano free di SerpApi ne offre 100 al mese.
+Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche per run**. Il cron gira **due volte al giorno** (mattina e sera): **~3600 ricerche al mese**, più eventuali comandi `/cerca` (ognuno consuma un run intero). Il piano free di SerpApi ne offre 100 al mese.
 
 `maxApiCallsPerRun` è un tetto di sicurezza: superata la soglia, il run si ferma e le destinazioni non ancora processate vengono segnalate invece di consumare quota a sorpresa.
 
@@ -359,8 +432,11 @@ Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche p
 |---|---|
 | `departureStrideDays: 30` | 6 date → 3 date, **−50%** |
 | `durationsToTest: [21]` | 2 durate → 1, **−50%** |
+| Un solo run/giorno invece di due | rimuovi una delle due righe `cron:` in `monitor.yml`, **−50%** |
 | Cron settimanale (`0 7 * * 1`) | **−85%** sul mese |
 | Meno `candidates` | proporzionale |
+
+`/cerca` da Telegram consuma le stesse ricerche di un run schedulato: se lo usi spesso, tienine conto nel budget di quota.
 
 **Config free-tier friendly** — 3 destinazioni × 3 date × 1 durata = 9 ricerche/run, settimanale ≈ 39/mese:
 

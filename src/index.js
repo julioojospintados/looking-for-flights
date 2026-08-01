@@ -41,6 +41,7 @@ function parseArgs(argv) {
     configPath: path.join(ROOT, 'config', 'trips.json'),
     statePath: path.join(ROOT, 'data', 'last_prices.json'),
     tripId: null,
+    budgetOverride: null,
   };
 
   for (const arg of argv.slice(2)) {
@@ -50,6 +51,9 @@ function parseArgs(argv) {
     else if (arg.startsWith('--config=')) args.configPath = path.resolve(arg.slice('--config='.length));
     else if (arg.startsWith('--state=')) args.statePath = path.resolve(arg.slice('--state='.length));
     else if (arg.startsWith('--trip=')) args.tripId = arg.slice('--trip='.length);
+    // Test-only convenience: lets `npm run mock` work with zero setup, without
+    // touching the BUDGET_<TRIP_ID> mechanism used for the real, private value.
+    else if (arg.startsWith('--budget=')) args.budgetOverride = Number(arg.slice('--budget='.length));
     else console.warn(`⚠️  Argomento ignorato: ${arg}`);
   }
 
@@ -64,7 +68,7 @@ function parseArgs(argv) {
 // Config & state I/O
 // ---------------------------------------------------------------------------
 
-async function loadConfig(configPath) {
+async function loadConfig(configPath, env = process.env) {
   let raw;
   try {
     raw = await readFile(configPath, 'utf8');
@@ -92,10 +96,44 @@ async function loadConfig(configPath) {
     currency: trip.currency ?? defaults.currency ?? 'EUR',
     adults: trip.adults ?? defaults.adults ?? 1,
     notify: { ...(defaults.notify ?? {}), ...(trip.notify ?? {}) },
+    budgetTotal: readBudgetOverride(trip, env) ?? trip.budgetTotal,
   }));
 
   config.defaults = defaults;
   return config;
+}
+
+/**
+ * Env var name carrying a trip's private budget: `BUDGET_<TRIP_ID>`, uppercased
+ * with non-alphanumerics turned into underscores — e.g. trip id
+ * "asia-autunno-2026" -> `BUDGET_ASIA_AUTUNNO_2026`.
+ * @param {string} tripId
+ */
+function budgetEnvVarName(tripId) {
+  return `BUDGET_${String(tripId).toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+}
+
+/**
+ * The trip budget is treated as private: it is never committed to
+ * config/trips.json, only supplied at runtime via an environment variable (a
+ * GitHub Secret in CI, a local .env otherwise). This keeps the config file
+ * itself safe to publish — anyone forking the repo sets their own budget
+ * without touching code, the same way API keys already work.
+ *
+ * @param {{ id: string }} trip
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number|undefined}
+ */
+function readBudgetOverride(trip, env) {
+  const key = budgetEnvVarName(trip.id);
+  const raw = env[key];
+  if (raw === undefined) return undefined;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${key}: valore non valido ("${raw}"), deve essere un numero > 0.`);
+  }
+  return parsed;
 }
 
 /** Missing or unreadable state is treated as "first run", never as a failure. */
@@ -242,8 +280,8 @@ export function renderMessage(trip, delta) {
     `✈️ ${trip.tripName}`,
   );
   push(
-    `💰 Budget: <b>${trip.budgetTotal} ${cur}</b> · 🗓 ${trip.departureWindow.from} → ${trip.departureWindow.to} · ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
-    `💰 Budget: ${trip.budgetTotal} ${cur} | 🗓 ${trip.departureWindow.from} → ${trip.departureWindow.to} | ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
+    `🗓 ${trip.departureWindow.from} → ${trip.departureWindow.to} · ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
+    `🗓 ${trip.departureWindow.from} → ${trip.departureWindow.to} | ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
   );
   push(
     `🛫 Partenze da: ${trip.origins.join(', ')}`,
@@ -297,8 +335,8 @@ export function renderMessage(trip, delta) {
         (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
     );
     push(
-      `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur} · avanzano <b>${result.marginStandard} ${cur}</b>`,
-      `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur} | avanzano ${result.marginStandard} ${cur}`,
+      `   🧮 Totale ${result.standardDays} gg: <b>${result.totalCostStandard} ${cur}</b>`,
+      `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur}`,
     );
 
     const drop = delta.drops.find((item) => item.id === result.id);
@@ -356,13 +394,23 @@ function formatTimestamp(iso) {
   return new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' });
 }
 
-/** Trim an engine result down to what the snapshot needs to diff next time. */
+/**
+ * Trim an engine result down to what the snapshot needs to diff next time.
+ *
+ * Deliberately excludes `budgetTotal` and `maxDaysBudget`: this file is
+ * committed to git. `budgetTotal` is the private figure supplied via the
+ * `BUDGET_<TRIP_ID>` env var and must never end up in version control.
+ * `maxDaysBudget` is excluded too because it is the *uncapped* days figure —
+ * combined with the public `groundCostPerDay` and the flight `price` shown
+ * right next to it, it would let anyone reverse the exact budget out of the
+ * committed file. `maxDays` (capped at the trip's max length) carries none of
+ * that risk and is kept.
+ */
 function toSnapshot(tripResult) {
   return {
     tripName: tripResult.tripName,
     provider: tripResult.provider,
     currency: tripResult.currency,
-    budgetTotal: tripResult.budgetTotal,
     updatedAt: tripResult.generatedAt,
     winner: tripResult.results.find((result) => result.rank === 1)?.id ?? null,
     results: tripResult.results.map((result) => ({
@@ -376,7 +424,6 @@ function toSnapshot(tripResult) {
       outboundDate: result.outboundDate ?? null,
       returnDate: result.returnDate ?? null,
       maxDays: result.maxDays,
-      maxDaysBudget: result.maxDaysBudget ?? null,
       totalCostStandard: result.totalCostStandard,
     })),
   };
@@ -439,6 +486,20 @@ async function main() {
   for (const trip of trips) {
     console.log(`\n──── ${trip.name} (${trip.id}) ────`);
 
+    if (Number.isFinite(args.budgetOverride) && args.budgetOverride > 0) {
+      trip.budgetTotal = args.budgetOverride;
+    }
+
+    if (!Number.isFinite(Number(trip.budgetTotal)) || Number(trip.budgetTotal) <= 0) {
+      const key = budgetEnvVarName(trip.id);
+      console.error(
+        `❌ [${trip.id}] Budget non impostato. Il budget è privato e non vive in config/trips.json: ` +
+          `imposta la variabile d'ambiente ${key} (GitHub Secret in CI, riga in .env in locale).`,
+      );
+      hadFailure = true;
+      continue;
+    }
+
     let tripResult;
     try {
       tripResult = await runTrip(trip, provider);
@@ -464,7 +525,7 @@ async function main() {
     console.log(
       winner
         ? `🏆 Vincitore: ${winner.name} — ${winner.maxDays}/${winner.maxTripDays} giorni, ` +
-          `volo ${winner.price} ${tripResult.currency}, avanzano ${winner.marginStandard} ${tripResult.currency}`
+          `volo ${winner.price} ${tripResult.currency}`
         : '🏆 Nessun vincitore: nessun volo con prezzo valido.',
     );
     console.log(
@@ -501,13 +562,13 @@ async function main() {
     summaryLines.push(`### ${trip.name}`, '');
     if (priced.length > 0) {
       summaryLines.push(
-        '| # | Destinazione | Volo A/R | Da | Date | Giorni | Totale std | Avanzano |',
-        '|---|---|---|---|---|---|---|---|',
+        '| # | Destinazione | Volo A/R | Da | Date | Giorni | Totale std |',
+        '|---|---|---|---|---|---|---|',
         ...priced.map(
           (r) =>
             `| ${r.rank} | ${r.name} (${r.hub}) | ${r.price} ${tripResult.currency} | ${r.origin} | ` +
             `${r.outboundDate} → ${r.returnDate} | **${r.maxDays}**/${r.maxTripDays} | ` +
-            `${r.totalCostStandard} ${tripResult.currency} | ${r.marginStandard} ${tripResult.currency} |`,
+            `${r.totalCostStandard} ${tripResult.currency} |`,
         ),
       );
     } else {

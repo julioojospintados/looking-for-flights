@@ -10,8 +10,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dry-run": "node src/index.js --dry-run",
-    "mock": "node src/index.js --provider=mock --dry-run",
-    "notify-test": "node src/index.js --provider=mock --force-notify --dry-run",
+    "mock": "node src/index.js --provider=mock --dry-run --budget=1000",
+    "notify-test": "node src/index.js --provider=mock --force-notify --dry-run --budget=1000",
     "mete": "node scripts/sync-mete.js",
     "mete:check": "node scripts/sync-mete.js --check"
   },

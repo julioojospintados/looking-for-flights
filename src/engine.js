@@ -353,15 +353,14 @@ export async function runTrip(trip, provider) {
 
       const economics = computeEconomics(best, candidate, trip);
 
-      // Show the cap explicitly: "21/21" means the trip length is the limit,
-      // "18/21" means the budget is.
-      const giorni = economics.budgetCoversFullTrip
-        ? `${economics.maxDays}/${economics.maxTripDays} gg (budget per ${economics.maxDaysBudget})`
-        : `${economics.maxDays}/${economics.maxTripDays} gg`;
-
+      // Deliberately never logs economics.maxDaysBudget: on a public repo, CI
+      // logs are public too, and that uncapped figure combined with the
+      // (public) groundCostPerDay and the price just printed would let anyone
+      // reverse-engineer the private trip budget.
       console.log(
         `   ✅ ${candidate.name} (${candidate.hub}): ${best.price} ${currency} ` +
-          `da ${best.origin} · ${best.outboundDate}→${best.returnDate} · ${giorni}`,
+          `da ${best.origin} · ${best.outboundDate}→${best.returnDate} · ` +
+          `${economics.maxDays}/${economics.maxTripDays} gg`,
       );
 
       return {

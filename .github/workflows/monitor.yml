@@ -2,8 +2,10 @@ name: Flight Price Monitor
 
 on:
   schedule:
-    # Ogni giorno alle 07:00 UTC (09:00 in Italia con l'ora legale, 08:00 con l'ora solare).
+    # Mattina — 07:00 UTC (09:00 in Italia con l'ora legale, 08:00 con l'ora solare).
     - cron: '0 7 * * *'
+    # Sera — 17:00 UTC (19:00 in Italia con l'ora legale, 18:00 con l'ora solare).
+    - cron: '0 17 * * *'
   workflow_dispatch:
     inputs:
       force_notify:
@@ -56,6 +58,11 @@ jobs:
       - name: Run monitor
         id: monitor
         env:
+          # Budget privato — una secret per viaggio, mai nel config committato.
+          # Nome: BUDGET_<ID-VIAGGIO-MAIUSCOLO>. Aggiungi una riga per ogni
+          # viaggio abilitato in config/trips.json.
+          BUDGET_ASIA_AUTUNNO_2026: ${{ secrets.BUDGET_ASIA_AUTUNNO_2026 }}
+
           # Provider voli — bastano le credenziali di quello effettivamente usato.
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
