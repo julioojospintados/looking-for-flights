@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "lastUpdate": "2026-08-01T20:12:43.019Z",
+  "lastUpdate": "2026-08-01T21:07:25.176Z",
   "trips": {
     "asia-autunno-2026": {
       "tripName": "Asia Autunno 2026",
       "provider": "serpapi",
       "currency": "EUR",
-      "updatedAt": "2026-08-01T20:12:42.148Z",
+      "updatedAt": "2026-08-01T21:07:23.810Z",
       "winner": "india-rajasthan",
       "results": [
         {
@@ -41,77 +41,15 @@
           ]
         },
         {
-          "id": "malesia-peninsulare",
-          "name": "Malesia Peninsulare",
-          "hub": "KUL",
-          "rank": 2,
-          "status": "ok",
-          "price": 531,
-          "origin": "BGY",
-          "outboundDate": "2026-09-01",
-          "returnDate": "2026-09-22",
-          "maxDays": null,
-          "totalCostStandard": null,
-          "originBreakdown": [
-            {
-              "id": "torino",
-              "status": "ok",
-              "price": 610,
-              "origin": "TRN",
-              "outboundDate": "2026-09-15",
-              "returnDate": "2026-09-29"
-            },
-            {
-              "id": "milano",
-              "status": "ok",
-              "price": 531,
-              "origin": "BGY",
-              "outboundDate": "2026-09-01",
-              "returnDate": "2026-09-22"
-            }
-          ]
-        },
-        {
-          "id": "thailandia-isole-golfo",
-          "name": "Thailandia (Isole del Golfo)",
-          "hub": "BKK",
-          "rank": 3,
-          "status": "ok",
-          "price": 548,
-          "origin": "MXP",
-          "outboundDate": "2026-09-01",
-          "returnDate": "2026-09-15",
-          "maxDays": null,
-          "totalCostStandard": null,
-          "originBreakdown": [
-            {
-              "id": "torino",
-              "status": "ok",
-              "price": 603,
-              "origin": "TRN",
-              "outboundDate": "2026-10-13",
-              "returnDate": "2026-11-03"
-            },
-            {
-              "id": "milano",
-              "status": "ok",
-              "price": 548,
-              "origin": "MXP",
-              "outboundDate": "2026-09-01",
-              "returnDate": "2026-09-15"
-            }
-          ]
-        },
-        {
           "id": "indonesia-giava-lombok",
           "name": "Indonesia (Giava/Lombok)",
           "hub": "CGK",
-          "rank": 4,
+          "rank": 2,
           "status": "ok",
-          "price": 629,
+          "price": 480,
           "origin": "MXP",
-          "outboundDate": "2026-09-15",
-          "returnDate": "2026-09-29",
+          "outboundDate": "2026-09-29",
+          "returnDate": "2026-10-20",
           "maxDays": null,
           "totalCostStandard": null,
           "originBreakdown": [
@@ -126,10 +64,41 @@
             {
               "id": "milano",
               "status": "ok",
-              "price": 629,
+              "price": 480,
               "origin": "MXP",
-              "outboundDate": "2026-09-15",
-              "returnDate": "2026-09-29"
+              "outboundDate": "2026-09-29",
+              "returnDate": "2026-10-20"
+            }
+          ]
+        },
+        {
+          "id": "thailandia-isole-golfo",
+          "name": "Thailandia (Isole del Golfo)",
+          "hub": "BKK",
+          "rank": 3,
+          "status": "ok",
+          "price": 482,
+          "origin": "MXP",
+          "outboundDate": "2026-10-31",
+          "returnDate": "2026-11-14",
+          "maxDays": null,
+          "totalCostStandard": null,
+          "originBreakdown": [
+            {
+              "id": "torino",
+              "status": "ok",
+              "price": 603,
+              "origin": "TRN",
+              "outboundDate": "2026-10-13",
+              "returnDate": "2026-11-03"
+            },
+            {
+              "id": "milano",
+              "status": "ok",
+              "price": 482,
+              "origin": "MXP",
+              "outboundDate": "2026-10-31",
+              "returnDate": "2026-11-14"
             }
           ]
         },
@@ -137,12 +106,12 @@
           "id": "vietnam-sud-cambogia",
           "name": "Vietnam Sud + Cambogia",
           "hub": "SGN",
-          "rank": 5,
+          "rank": 4,
           "status": "ok",
-          "price": 649,
+          "price": 504,
           "origin": "MXP",
-          "outboundDate": "2026-10-27",
-          "returnDate": "2026-11-10",
+          "outboundDate": "2026-09-29",
+          "returnDate": "2026-10-20",
           "maxDays": null,
           "totalCostStandard": null,
           "originBreakdown": [
@@ -157,10 +126,41 @@
             {
               "id": "milano",
               "status": "ok",
-              "price": 649,
+              "price": 504,
               "origin": "MXP",
-              "outboundDate": "2026-10-27",
-              "returnDate": "2026-11-10"
+              "outboundDate": "2026-09-29",
+              "returnDate": "2026-10-20"
+            }
+          ]
+        },
+        {
+          "id": "malesia-peninsulare",
+          "name": "Malesia Peninsulare",
+          "hub": "KUL",
+          "rank": 5,
+          "status": "ok",
+          "price": 530,
+          "origin": "MXP",
+          "outboundDate": "2026-09-15",
+          "returnDate": "2026-09-29",
+          "maxDays": null,
+          "totalCostStandard": null,
+          "originBreakdown": [
+            {
+              "id": "torino",
+              "status": "ok",
+              "price": 610,
+              "origin": "TRN",
+              "outboundDate": "2026-09-15",
+              "returnDate": "2026-09-29"
+            },
+            {
+              "id": "milano",
+              "status": "ok",
+              "price": 530,
+              "origin": "MXP",
+              "outboundDate": "2026-09-15",
+              "returnDate": "2026-09-29"
             }
           ]
         }
