@@ -1,5 +1,86 @@
 {
   "version": 1,
-  "lastUpdate": null,
-  "trips": {}
+  "lastUpdate": "2026-08-01T09:32:42.270Z",
+  "trips": {
+    "asia-autunno-2026": {
+      "tripName": "Asia Autunno 2026",
+      "provider": "serpapi",
+      "currency": "EUR",
+      "budgetTotal": 1500,
+      "updatedAt": "2026-08-01T09:32:38.738Z",
+      "winner": "india-rajasthan",
+      "results": [
+        {
+          "id": "india-rajasthan",
+          "name": "India (Rajasthan)",
+          "hub": "DEL",
+          "rank": 1,
+          "status": "ok",
+          "price": 426,
+          "origin": "MXP",
+          "outboundDate": "2026-09-15",
+          "returnDate": "2026-09-29",
+          "maxDays": 21,
+          "maxDaysBudget": 53,
+          "totalCostStandard": 846
+        },
+        {
+          "id": "vietnam-sud-cambogia",
+          "name": "Vietnam Sud + Cambogia",
+          "hub": "SGN",
+          "rank": 2,
+          "status": "ok",
+          "price": 504,
+          "origin": "MXP",
+          "outboundDate": "2026-09-29",
+          "returnDate": "2026-10-20",
+          "maxDays": 21,
+          "maxDaysBudget": 34,
+          "totalCostStandard": 1131
+        },
+        {
+          "id": "indonesia-giava-lombok",
+          "name": "Indonesia (Giava/Lombok)",
+          "hub": "CGK",
+          "rank": 3,
+          "status": "ok",
+          "price": 500,
+          "origin": "MXP",
+          "outboundDate": "2026-09-29",
+          "returnDate": "2026-10-13",
+          "maxDays": 21,
+          "maxDaysBudget": 34,
+          "totalCostStandard": 1137
+        },
+        {
+          "id": "malesia-peninsulare",
+          "name": "Malesia Peninsulare",
+          "hub": "KUL",
+          "rank": 4,
+          "status": "ok",
+          "price": 531,
+          "origin": "BGY",
+          "outboundDate": "2026-09-01",
+          "returnDate": "2026-09-22",
+          "maxDays": 21,
+          "maxDaysBudget": 29,
+          "totalCostStandard": 1224
+        },
+        {
+          "id": "thailandia-isole-golfo",
+          "name": "Thailandia (Isole del Golfo)",
+          "hub": "BKK",
+          "rank": 5,
+          "status": "ok",
+          "price": 548,
+          "origin": "MXP",
+          "outboundDate": "2026-09-01",
+          "returnDate": "2026-09-15",
+          "maxDays": 21,
+          "maxDaysBudget": 29,
+          "totalCostStandard": 1233
+        }
+      ]
+    }
+  }
 }
