@@ -61,7 +61,12 @@ jobs:
           # Budget privato — una secret per viaggio, mai nel config committato.
           # Nome: BUDGET_<ID-VIAGGIO-MAIUSCOLO>. Aggiungi una riga per ogni
           # viaggio abilitato in config/trips.json.
-          BUDGET_ASIA_AUTUNNO_2026: ${{ secrets.BUDGET_ASIA_AUTUNNO_2026 }}
+          # Secret oppure variable: creare il valore nella tab sbagliata di
+          # "Secrets and variables" è l'errore più comune, e produceva un run
+          # fallito senza spiegazione. Il repo è privato, quindi una variable
+          # non è meno riservata di una secret; su repo pubblico invece una
+          # variable è leggibile da chiunque — lì usa la secret.
+          BUDGET_ASIA_AUTUNNO_2026: ${{ secrets.BUDGET_ASIA_AUTUNNO_2026 || vars.BUDGET_ASIA_AUTUNNO_2026 }}
 
           # Provider voli — bastano le credenziali di quello effettivamente usato.
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
@@ -80,7 +85,11 @@ jobs:
         # `continue-on-error` così un errore API non impedisce di committare i
         # dati raccolti; l'esito reale resta visibile in `steps.monitor.outcome`.
         continue-on-error: true
-        run: npm start
+        # `pipefail` è obbligatorio con la pipe: senza, l'exit code sarebbe
+        # quello di `tee` (sempre 0) e un fallimento passerebbe per successo.
+        run: |
+          set -o pipefail
+          npm start 2>&1 | tee "${RUNNER_TEMP}/monitor.log"
 
       - name: Commit price snapshot
         if: ${{ inputs.dry_run != true }}
@@ -112,7 +121,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -H 'Content-Type: application/json' \
-            -d "$(printf '{"chat_id":"%s","text":"❌ Il monitoraggio programmato è fallito. Log del run: %s","disable_web_page_preview":true}' "${TELEGRAM_CHAT_ID}" "${RUN_URL}")" \
-            > /dev/null
+          REASON=$(grep -a '❌' "${RUNNER_TEMP}/monitor.log" 2>/dev/null | tail -1 | cut -c1-300)
+          [ -z "${REASON}" ] && REASON="❌ Il monitoraggio programmato è fallito."
+          # printf per l'a capo: una newline scritta a mano dentro la stringa
+          # chiuderebbe il blocco YAML `run: |`.
+          TEXT=$(printf '%s\nLog del run: %s' "${REASON}" "${RUN_URL}")
+          jq -n --arg chat "${TELEGRAM_CHAT_ID}" --arg text "${TEXT}" \
+                '{chat_id: $chat, text: $text, disable_web_page_preview: true}' \
+            | curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -H 'Content-Type: application/json' -d @- > /dev/null

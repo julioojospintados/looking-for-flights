@@ -411,6 +411,9 @@ export async function runTrip(trip, provider) {
   const concurrency = Math.max(1, Number(trip.sampling?.concurrency) || 3);
   const budget = { remaining: maxCalls };
   const originGroups = resolveOriginGroups(trip);
+  // Senza budget il motore resta utile a metà: trova i voli, non può dire
+  // quanti giorni ci stanno dentro. Meglio metà risposta che nessuna.
+  const hasBudget = Number.isFinite(Number(trip.budgetTotal)) && Number(trip.budgetTotal) > 0;
 
   console.log(
     `🔎 [${trip.id}] ${trip.candidates.length} destinazioni × ${plan.length} combinazioni date ` +
@@ -471,7 +474,7 @@ export async function runTrip(trip, provider) {
         };
       }
 
-      const economics = computeEconomics(best, candidate, trip);
+      const economics = hasBudget ? computeEconomics(best, candidate, trip) : null;
       const originBreakdown = buildOriginBreakdown(bestByOrigin, originGroups, best.price);
 
       // Deliberately never logs economics.maxDaysBudget: on a public repo, CI
@@ -480,8 +483,8 @@ export async function runTrip(trip, provider) {
       // reverse-engineer the private trip budget.
       console.log(
         `   ✅ ${candidate.name} (${candidate.hub}): ${best.price} ${currency} ` +
-          `da ${best.origin} · ${best.outboundDate}→${best.returnDate} · ` +
-          `${economics.maxDays}/${economics.maxTripDays} gg`,
+          `da ${best.origin} · ${best.outboundDate}→${best.returnDate}` +
+          (economics ? ` · ${economics.maxDays}/${economics.maxTripDays} gg` : ' · giorni n/d (budget assente)'),
       );
 
       const breakdownLog = originBreakdown
@@ -502,7 +505,10 @@ export async function runTrip(trip, provider) {
         stops: best.stops ?? null,
         bookingUrl: best.bookingUrl ?? null,
         originBreakdown,
-        ...economics,
+        // Senza budget i campi economici restano null anziché sparire: chi
+        // legge il risultato (rendering, snapshot, diff) trova sempre le stesse
+        // chiavi e non deve indovinare la modalità del run.
+        ...(economics ?? { maxDays: null, maxDaysBudget: null, totalCostStandard: null, feasible: null }),
       };
     } catch (error) {
       if (error instanceof QuotaExceededError) {
@@ -534,7 +540,8 @@ export async function runTrip(trip, provider) {
     tripName: trip.name,
     provider: provider.name,
     currency,
-    budgetTotal: Number(trip.budgetTotal),
+    budgetTotal: hasBudget ? Number(trip.budgetTotal) : null,
+    budgetMissing: !hasBudget,
     departureWindow: { ...trip.departureWindow },
     tripDuration: { ...trip.tripDuration },
     origins: [...trip.origins],
@@ -550,14 +557,23 @@ export async function runTrip(trip, provider) {
 /**
  * Rank by max sustainable days (desc). Ties break on total cost for the
  * standard trip (asc). Candidates without a price go last, in config order.
+ *
+ * Senza budget non esistono né giorni né costo totale: la classifica degrada
+ * al solo prezzo del volo, che è comunque l'ordinamento che un umano si
+ * aspetta quando manca tutto il resto.
  */
 export function rankResults(results) {
   const priced = results.filter((r) => r.status === 'ok');
   const unpriced = results.filter((r) => r.status !== 'ok');
 
   priced.sort((a, b) => {
-    if (b.maxDays !== a.maxDays) return b.maxDays - a.maxDays;
-    return a.totalCostStandard - b.totalCostStandard;
+    const daysA = Number.isFinite(a.maxDays) ? a.maxDays : null;
+    const daysB = Number.isFinite(b.maxDays) ? b.maxDays : null;
+    if (daysA !== null && daysB !== null && daysA !== daysB) return daysB - daysA;
+
+    const costA = Number.isFinite(a.totalCostStandard) ? a.totalCostStandard : a.price;
+    const costB = Number.isFinite(b.totalCostStandard) ? b.totalCostStandard : b.price;
+    return costA - costB;
   });
 
   return [
@@ -575,8 +591,13 @@ export function validateTrip(trip) {
   const errors = [];
 
   if (!trip.id) errors.push('manca "id"');
-  if (!Number.isFinite(Number(trip.budgetTotal)) || Number(trip.budgetTotal) <= 0) {
-    errors.push('"budgetTotal" deve essere un numero > 0');
+  // `budgetTotal` assente è ammesso: il run degrada a classifica per prezzo
+  // (vedi `hasBudget` in runTrip). Un valore *presente ma insensato* resta
+  // invece un errore — è un refuso, non una scelta.
+  if (trip.budgetTotal !== null && trip.budgetTotal !== undefined) {
+    if (!Number.isFinite(Number(trip.budgetTotal)) || Number(trip.budgetTotal) <= 0) {
+      errors.push('"budgetTotal" deve essere un numero > 0');
+    }
   }
   if (!Array.isArray(trip.origins) || trip.origins.length === 0) {
     errors.push('"origins" deve contenere almeno un codice IATA');
