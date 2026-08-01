@@ -15,6 +15,7 @@ Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più ec
 - [Setup passo-passo](#-setup-passo-passo)
 - [Esecuzione locale](#-esecuzione-locale)
 - [Ricerca su richiesta: comando /cerca su Telegram](#ricerca-su-richiesta-comando-cerca-su-telegram)
+  - [Comandi del bot](#comandi-del-bot)
 - [Riferimento configurazione](#-riferimento-configurazione)
   - [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico)
 - [Consumo della quota API](#-consumo-della-quota-api-leggimi)
@@ -103,7 +104,9 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 ├── data/
 │   ├── last_prices.json            # Stato prezzi (committato dalla Action)
 │   └── telegram_offset.json        # Ultimo comando Telegram già letto
-├── scripts/sync-mete.js            # Applica config/mete.txt a config/trips.json
+├── scripts/
+│   ├── sync-mete.js                # Applica config/mete.txt a config/trips.json
+│   └── register-telegram-commands.js  # Pubblica il menu "/" del bot (setMyCommands)
 ├── src/
 │   ├── api/
 │   │   ├── flightProvider.js       # Contratto generico + factory + HTTP con retry
@@ -113,6 +116,7 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 │   ├── utils/notifier.js           # Telegram + Slack
 │   ├── engine.js                   # Piano di ricerca, budget, classifica
 │   ├── index.js                    # Entry point: stato, delta, rendering, notifica
+│   ├── telegram-commands.js        # Tabella comandi del bot (unica fonte di verità)
 │   └── telegram-poll.js            # Ascolto comandi Telegram (getUpdates)
 ├── .env.example
 └── package.json                    # Zero dipendenze runtime
@@ -270,13 +274,31 @@ Il bot normalmente **manda** messaggi ma non li **riceve**: per fargli ascoltare
 ```
 ogni 15 minuti ──▶ GitHub controlla i messaggi nuovi del bot (getUpdates)
                       │
-                      ├─ hai scritto "/cerca" o "/check"? ──▶ 🔍 ack immediato
-                      │                                        + ricerca vera (npm start)
-                      │                                        + notifica col risultato
-                      └─ nient'altro (es. /start, chiacchiere) ──▶ ignorato
+                      ├─ "/cerca" o "/check" ──▶ 🔍 ack immediato
+                      │                           + ricerca vera (npm start)
+                      │                           + notifica col risultato
+                      ├─ "/start" o "/help"  ──▶ 📖 istruzioni, nessuna ricerca
+                      ├─ altro slash-command ──▶ ❓ "non lo conosco" + lista comandi
+                      └─ testo libero        ──▶ ignorato in silenzio
 ```
 
 Scrivi `/cerca` (o `/check`) nella chat con il bot. Entro 15 minuti ricevi prima un ack ("🔍 Ricerca avviata..."), poi il risultato vero e proprio — **sempre**, anche se i prezzi non sono cambiati, perché un comando esplicito merita sempre una risposta.
+
+### Comandi del bot
+
+| Comando | Cosa fa |
+| --- | --- |
+| `/cerca` | Lancia subito una ricerca (alias: `/check`) |
+| `/help` | Ricorda come funziona il bot e quali comandi esistono (alias: `/start`) |
+
+Il testo libero non riceve risposta: la chat resta usabile anche per appunti. Uno slash-command inesistente invece una risposta la riceve — un bot che tace sembra rotto.
+
+**Menu "/" nella chat**: la lista comandi va pubblicata su Telegram una volta sola con [`setMyCommands`](https://core.telegram.org/bots/api#setmycommands), altrimenti i comandi funzionano ma non compaiono nel menu a tendina. Due modi:
+
+- **Da GitHub** (consigliato, il token è già lì come secret): **Actions** → **Telegram On-Demand Search** → **Run workflow**, spuntando `register_commands`.
+- **In locale**, se hai il token a portata di mano: `TELEGRAM_BOT_TOKEN=... npm run telegram:commands`.
+
+Va rifatto solo quando cambia la lista in [src/telegram-commands.js](src/telegram-commands.js) — il menu è uno stato che vive su Telegram, non nel repo, quindi non è un passo del cron. In alternativa si può fare a mano da [@BotFather](https://t.me/BotFather) con `/setcommands`.
 
 Nessuna secret nuova: riusa `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` già configurate. Solo i messaggi dalla chat autorizzata (`TELEGRAM_CHAT_ID`) vengono considerati.
 
@@ -484,6 +506,9 @@ Nessuna modifica a `engine.js` o `index.js`.
 | `quota esaurita` | Ricerche SerpApi finite. Vedi [Consumo della quota API](#-consumo-della-quota-api-leggimi). |
 | Nessuna notifica ricevuta | Hai premuto **Start** sul bot? Le notifiche partono solo con variazioni rilevanti: prova `force_notify`. |
 | `chat not found` | `TELEGRAM_CHAT_ID` errato, oppure non hai mai scritto al bot. |
+| Il bot non risponde ai comandi | La risposta non è istantanea: il poll gira ogni 15 minuti (e i cron GitHub possono accodarsi). Se dopo mezz'ora tace ancora, controlla l'ultimo run di **Telegram On-Demand Search** nella tab Actions. |
+| Il menu "/" non compare nella chat | Comandi mai pubblicati su Telegram: lancia **Run workflow** con `register_commands`, poi riapri la chat. |
+| `Conflict: can't use getUpdates while webhook is active` | Al bot è stato assegnato un webhook (da un altro progetto o da un test). Rimuovilo: `curl "https://api.telegram.org/bot<TOKEN>/deleteWebhook"`. |
 | `nessun volo trovato` su tutte le rotte | Date troppo lontane (le compagnie pubblicano ~11 mesi prima) o codici IATA errati. |
 | Il commit automatico non parte | **Settings → Actions → General → Workflow permissions** su *Read and write*. |
 | Il cron non scatta | GitHub disattiva gli scheduled workflow dopo 60 giorni di inattività del repo. Riattivalo dalla tab Actions. |

@@ -20,7 +20,12 @@ name: Telegram On-Demand Search
 on:
   schedule:
     - cron: '*/15 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      register_commands:
+        description: 'Ripubblica il menu comandi "/" del bot su Telegram'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -50,6 +55,16 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      # Il menu "/" della chat è uno stato che vive su Telegram, non nel repo:
+      # si ripubblica a mano quando cambia la lista in src/telegram-commands.js.
+      # Sta qui, e non solo come script locale, perché il token è una secret di
+      # GitHub: così non serve averlo sulla propria macchina.
+      - name: Register Telegram command menu
+        if: inputs.register_commands
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: npm run telegram:commands
 
       # Un blip momentaneo (rete, rate limit di Telegram) si autocorregge da
       # solo al giro successivo tra 10 minuti: non deve marcare il job come
