@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "lastUpdate": "2026-08-01T19:54:42.034Z",
+  "lastUpdate": "2026-08-01T20:12:43.019Z",
   "trips": {
     "asia-autunno-2026": {
       "tripName": "Asia Autunno 2026",
       "provider": "serpapi",
       "currency": "EUR",
-      "updatedAt": "2026-08-01T19:54:41.615Z",
+      "updatedAt": "2026-08-01T20:12:42.148Z",
       "winner": "india-rajasthan",
       "results": [
         {
