@@ -7,6 +7,73 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-02 — 225 ricerche su 250 bruciate in due giorni
+
+Email di SerpApi: *"You've used 90% of your searches"* — 225 su 250 del piano
+mensile, consumate in due giorni. Ne restavano 25, e il cron del mattino
+dopo ne avrebbe chieste 60.
+
+Il conto dei run di quel giorno:
+
+```
+07:47 cron mattina    60      19:51 /cerca   60
+17:22 cron sera       60      20:12 /cerca   60
+                              21:04 /cerca   60
+```
+
+Tre cause sovrapposte, e la seconda è nostra:
+
+1. **Il costo per run era 60** (5 mete × 6 date × 2 durate) e il cron girava
+   **due volte al giorno**: 3600 ricerche al mese contro 250 disponibili. Era
+   scritto nel README fin dall'inizio, e ignorato fin dall'inizio.
+2. **La correzione del budget del giorno prima.** Finché ogni `/cerca` moriva
+   sulla secret mancante, consumava **zero** ricerche: i fallimenti stavano
+   involontariamente proteggendo la quota. Farli degradare invece che morire
+   era giusto per chi usa il bot, ma ha tolto un freno di cui nessuno
+   sospettava l'esistenza.
+3. **Il webhook.** Con `/cerca` istantaneo è naturale lanciarlo tre volte in
+   un'ora. Ogni volta, 60 ricerche.
+
+### Il tetto che mancava
+
+`maxApiCallsPerRun` limita **una** esecuzione, e da solo non ha mai impedito
+niente: dieci `/cerca` sono dieci run legittimi da 60. Serviva un tetto che
+attraversasse i run — `defaults.apiQuota`, in `src/utils/quota.js`.
+
+Tre decisioni dentro quel modulo:
+
+- **Finestra mobile di 30 giorni, non mese solare.** SerpApi azzera
+  all'anniversario dell'iscrizione, data che il programma non conosce. La
+  finestra mobile evita di doverla sapere ed è un po' conservativa a cavallo
+  del rinnovo: sbaglia sempre dalla parte giusta, perché bloccare un run in
+  più è recuperabile e sforare la quota no.
+- **Il cron e `/cerca` non valgono uguale.** Il cron può saltare un giro senza
+  che nessuno se ne accorga; un `/cerca` è una persona che sta aspettando. Le
+  esecuzioni programmate si fermano a `monthlySearches − reserveForOnDemand`,
+  e solo le richieste esplicite possono intaccare la riserva.
+- **A quota esaurita il run non parte.** Una ricerca che sappiamo verrà
+  rifiutata dall'API è solo un modo più lento di fallire. Arriva invece un
+  messaggio Telegram con la data in cui la quota torna disponibile — perché un
+  run che si ferma in silenzio è indistinguibile da "nessuna variazione di
+  prezzo", lo stesso equivoco che rendeva invisibili i fallimenti.
+
+### Il seme delle 225
+
+Il contatore parte da uno stato vuoto, quindi al primo avvio avrebbe
+autorizzato altre 250 ricerche già spese. `data/last_prices.json` è stato
+inizializzato a mano con il consumo reale comunicato da SerpApi: senza quel
+seme il tetto sarebbe stato corretto e inutile.
+
+### Costo per run: 60 → 15
+
+`departureStrideDays` 14 → 30 (6 date → 3) e `durationsToTest` [14,21] → [21].
+Cron da due volte al giorno a **lunedì e giovedì**: ~130 ricerche al mese di
+monitoraggio automatico, ~120 lasciate ai `/cerca`. Si perde la granularità
+sulle date di partenza — che con un budget di 250 ricerche al mese non era
+comunque sostenibile.
+
+---
+
 ## 2026-08-01 — Notifica in tabella, con il volo per intero
 
 La notifica diceva prezzo e date e si fermava lì. Ma "426 €" non basta per

@@ -4,6 +4,13 @@
     "provider": "serpapi",
     "currency": "EUR",
     "adults": 1,
+
+    "_comment_apiQuota": "Tetto che attraversa i run, non il singolo run (quello è sampling.maxApiCallsPerRun). monthlySearches = il piano SerpApi. reserveForOnDemand = quota che il cron NON può toccare, riservata a /cerca: il cron può saltare un giro senza che nessuno se ne accorga, un /cerca è una persona che aspetta. Finestra mobile di 30 giorni perché la data di rinnovo del piano non è nota al programma.",
+    "apiQuota": {
+      "monthlySearches": 250,
+      "reserveForOnDemand": 100,
+      "windowDays": 30
+    },
     "notify": {
       "priceDropThreshold": 15,
       "channels": ["telegram", "slack"]
@@ -38,10 +45,10 @@
       ],
 
       "sampling": {
-        "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Alzare departureStrideDays o ridurre durationsToTest per consumare meno quota.",
-        "departureStrideDays": 14,
-        "durationsToTest": [14, 21],
-        "maxApiCallsPerRun": 60,
+        "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Con 5 mete: stride 30 = 3 date, 1 durata = 15 ricerche per run. Era 60 (stride 14 = 6 date x 2 durate), cioè 250 ricerche/mese bruciate in 4 run.",
+        "departureStrideDays": 30,
+        "durationsToTest": [21],
+        "maxApiCallsPerRun": 15,
         "concurrency": 3
       },
 

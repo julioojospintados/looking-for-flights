@@ -34,6 +34,14 @@ import {
   truncate,
 } from './utils/format.js';
 import { availableChannels, escapeHtml, sendNotification } from './utils/notifier.js';
+import {
+  emptyQuotaState,
+  nextReleaseDate,
+  recordUsage,
+  remainingAllowance,
+  today,
+  usageInWindow,
+} from './utils/quota.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATE_VERSION = 1;
@@ -158,14 +166,14 @@ async function loadState(statePath) {
   try {
     const parsed = JSON.parse(await readFile(statePath, 'utf8'));
     if (!parsed || typeof parsed !== 'object' || !parsed.trips) {
-      return { version: STATE_VERSION, lastUpdate: null, trips: {} };
+      return { version: STATE_VERSION, lastUpdate: null, trips: {}, quota: emptyQuotaState() };
     }
-    return parsed;
+    return { quota: emptyQuotaState(), ...parsed };
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.warn(`⚠️  Stato precedente illeggibile (${error.message}). Tratto come prima esecuzione.`);
     }
-    return { version: STATE_VERSION, lastUpdate: null, trips: {} };
+    return { version: STATE_VERSION, lastUpdate: null, trips: {}, quota: emptyQuotaState() };
   }
 }
 
@@ -622,10 +630,32 @@ async function main() {
     return 0;
   }
 
-  const nextState = { version: STATE_VERSION, lastUpdate: state.lastUpdate, trips: { ...state.trips } };
+  const nextState = {
+    version: STATE_VERSION,
+    lastUpdate: state.lastUpdate,
+    trips: { ...state.trips },
+    quota: state.quota ?? emptyQuotaState(),
+  };
+
+  // Quanta quota API resta prima ancora di interrogare il provider. Il tetto
+  // per-run non bastava: limitava la singola esecuzione, non quante volte la
+  // si lancia.
+  const quotaConfig = config.defaults.apiQuota ?? {};
+  const mode = process.env.RUN_MODE === 'ondemand' || args.forceNotify ? 'ondemand' : 'scheduled';
+  const usedSoFar = usageInWindow(nextState.quota, today(), quotaConfig.windowDays);
+  const allowance = remainingAllowance(quotaConfig, usedSoFar, mode);
+
+  if (Number.isFinite(allowance.cap)) {
+    console.log(
+      `📊 Quota API: ${allowance.used}/${allowance.cap} usate (${mode}) · ` +
+        `${allowance.allowed} disponibili in questo run`,
+    );
+  }
   const summaryLines = ['## ✈️ Looking for Flights', ''];
   let stateChanged = false;
   let hadFailure = false;
+  /** Viaggi saltati per quota: vanno comunicati, non lasciati in silenzio. */
+  const quotaBlocked = [];
 
   for (const trip of trips) {
     console.log(`\n──── ${trip.name} (${trip.id}) ────`);
@@ -650,6 +680,36 @@ async function main() {
       trip.budgetTotal = null;
     }
 
+    // La quota residua vince sul tetto configurato: `maxApiCallsPerRun` dice
+    // quanto *vorremmo* spendere, l'allowance quanto *possiamo*. A zero il run
+    // non parte nemmeno — una ricerca che sappiamo essere rifiutata dall'API è
+    // solo un modo più lento di fallire.
+    if (allowance.exhausted) {
+      const ripresa = nextReleaseDate(nextState.quota, quotaConfig.windowDays);
+      const messaggio =
+        `Quota API esaurita: ${allowance.used}/${allowance.cap} ricerche negli ultimi ` +
+        `${quotaConfig.windowDays ?? 30} giorni` +
+        (mode === 'scheduled' && quotaConfig.reserveForOnDemand
+          ? ` (riserva di ${quotaConfig.reserveForOnDemand} tenuta per /cerca)`
+          : '') +
+        (ripresa ? `. Torna disponibile dal ${ripresa}.` : '.');
+
+      console.warn(`⏸️  [${trip.id}] ${messaggio}`);
+      summaryLines.push(`### ⏸️ ${trip.name}`, '', messaggio, '');
+      quotaBlocked.push(messaggio);
+      continue;
+    }
+
+    if (Number.isFinite(allowance.allowed)) {
+      trip.sampling = {
+        ...trip.sampling,
+        maxApiCallsPerRun: Math.min(
+          Number(trip.sampling?.maxApiCallsPerRun) || allowance.allowed,
+          allowance.allowed,
+        ),
+      };
+    }
+
     let tripResult;
     try {
       tripResult = await runTrip(trip, provider);
@@ -658,6 +718,22 @@ async function main() {
       console.error(`❌ [${trip.id}] Esecuzione fallita: ${error.message}`);
       summaryLines.push(`### ❌ ${trip.name}`, '', `Esecuzione fallita: \`${error.message}\``, '');
       continue;
+    }
+
+    // Registrato sempre, anche se poi la notifica non parte: le ricerche sono
+    // state consumate comunque, e uno stato che le dimentica riaprirebbe la
+    // porta allo sforamento che questo contatore esiste per impedire.
+    if (tripResult.apiCallsUsed > 0) {
+      nextState.quota = recordUsage(
+        nextState.quota,
+        today(),
+        tripResult.apiCallsUsed,
+        quotaConfig.windowDays,
+      );
+      allowance.allowed = Math.max(0, allowance.allowed - tripResult.apiCallsUsed);
+      allowance.used += tripResult.apiCallsUsed;
+      allowance.exhausted = allowance.allowed <= 0;
+      stateChanged = true;
     }
 
     const threshold = Number(trip.notify?.priceDropThreshold ?? 15);
@@ -733,6 +809,14 @@ async function main() {
       `Notifica inviata: **${delta.shouldNotify && !args.dryRun ? 'sì' : 'no'}** · Ricerche API: ${tripResult.apiCallsUsed}/${tripResult.apiCallsBudget}`,
       '',
     );
+  }
+
+  // --- quota esaurita: dirlo, non sparire ---------------------------------
+  // Un run che si ferma in silenzio è indistinguibile da "nessuna variazione
+  // di prezzo": è lo stesso equivoco che rendeva invisibili i fallimenti.
+  if (quotaBlocked.length > 0 && !args.dryRun) {
+    const testo = `⏸️ <b>Ricerca sospesa</b>\n${quotaBlocked.map((line) => escapeHtml(line)).join('\n')}`;
+    await sendNotification({ html: testo, text: stripTags(testo) }, { channels });
   }
 
   // --- write state --------------------------------------------------------

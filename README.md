@@ -2,7 +2,7 @@
 
 Monitoraggio automatico dei prezzi dei voli con **classifica per giorni di viaggio sostenibili a budget fisso**.
 
-Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più economico verso ogni destinazione candidata, calcola quanti giorni potresti restare a terra con il budget residuo, ordina le destinazioni e ti scrive su Telegram **solo quando c'è davvero qualcosa da sapere** — oppure scrivi `/cerca` al bot per farla partire quando vuoi tu.
+Due volte a settimana una GitHub Action cerca il volo A/R più economico verso ogni destinazione candidata, calcola quanti giorni potresti restare a terra con il budget residuo, ordina le destinazioni e ti scrive su Telegram **solo quando c'è davvero qualcosa da sapere** — oppure scrivi `/cerca` al bot per farla partire quando vuoi tu.
 
 > **Architettura "Engine + Config"** — tutta la logica di dominio vive in [config/trips.json](config/trips.json). Per monitorare un viaggio completamente diverso (altre date, altro budget, altre destinazioni) non si tocca una riga di codice.
 
@@ -77,10 +77,10 @@ Il sistema è volutamente silenzioso. Notifica **solo** se:
 
 In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambiati, e non ti disturba.
 
-### Il ciclo giornaliero
+### Il ciclo
 
 ```
-07:00 e 17:00 UTC ──▶ GitHub Action
+lun e gio 07:00 UTC ─▶ GitHub Action
                 │
                 ├─▶ legge config/trips.json
                 ├─▶ interroga il provider voli (SerpApi / Amadeus)
@@ -98,7 +98,7 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 ```text
 .
 ├── .github/workflows/
-│   ├── monitor.yml                 # Cron mattina+sera, trigger manuale, dispatch dal webhook
+│   ├── monitor.yml                 # Cron lun+gio, trigger manuale, dispatch dal webhook
 │   └── telegram-admin.yml          # Utility manuale: pubblica il menu "/" del bot
 ├── cloudflare-worker/               # Unico pezzo fuori da GitHub — vedi il suo README
 │   ├── src/worker.js               # Webhook Telegram → workflow_dispatch, istantaneo
@@ -119,6 +119,7 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 │   │   └── mock.js                 # Provider offline per test (nessuna quota consumata)
 │   ├── utils/
 │   │   ├── notifier.js             # Telegram + Slack
+│   │   ├── quota.js                # Tetto API che attraversa i run
 │   │   ├── airports.js             # IATA → città (TRN → Torino)
 │   │   └── format.js               # Durate, orari, tabelle monospaziate
 │   ├── engine.js                   # Piano di ricerca, budget, classifica
@@ -149,7 +150,7 @@ Oppure da web: **New repository** → privato → poi `git remote add origin ...
 1. Registrati su **[serpapi.com](https://serpapi.com/users/sign_up)** (piano free: 100 ricerche/mese).
 2. Copia la chiave da **[serpapi.com/manage-api-key](https://serpapi.com/manage-api-key)**.
 
-> ⚠️ Con 100 ricerche/mese **non puoi girare ogni giorno** con la config di default. Leggi [Consumo della quota API](#-consumo-della-quota-api-leggimi) prima di attivare il cron.
+> ⚠️ La quota API è la risorsa scarsa di questo progetto: 15 ricerche a run significano ~16 run al mese con un piano da 250. Leggi [Consumo della quota API](#-consumo-della-quota-api-leggimi) prima di alzare la frequenza del cron.
 
 ### 3. Crea il bot Telegram
 
@@ -511,9 +512,26 @@ Il numero di ricerche per run è:
 ricerche = destinazioni × date_di_partenza_campionate × durate_testate
 ```
 
-Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche per run**. Il cron gira **due volte al giorno** (mattina e sera): **~3600 ricerche al mese**, più eventuali comandi `/cerca` (ognuno consuma un run intero). Il piano free di SerpApi ne offre 100 al mese.
+Con la config attuale: **5 destinazioni × 3 date × 1 durata = 15 ricerche per run**. Il cron gira **due volte a settimana** (lunedì e giovedì): **~130 ricerche al mese**, più i comandi `/cerca` — ognuno dei quali consuma un run intero.
 
-`maxApiCallsPerRun` è un tetto di sicurezza: superata la soglia, il run si ferma e le destinazioni non ancora processate vengono segnalate invece di consumare quota a sorpresa.
+### Il tetto che serviva davvero
+
+`maxApiCallsPerRun` limita **una** esecuzione, e da solo non ha mai impedito nulla: dieci `/cerca` in un pomeriggio sono dieci run legittimi. Serviva un tetto che attraversasse i run, ed è `defaults.apiQuota`:
+
+```jsonc
+"apiQuota": {
+  "monthlySearches": 250,      // il tuo piano SerpApi
+  "reserveForOnDemand": 100,   // quota che il cron NON può toccare
+  "windowDays": 30
+}
+```
+
+Due scelte di progetto dietro questi tre numeri:
+
+- **Finestra mobile di 30 giorni, non mese solare.** SerpApi azzera il contatore all'anniversario dell'iscrizione, una data che il programma non conosce. La finestra mobile evita di doverla sapere: è un po' conservativa a cavallo del rinnovo, e sbaglia quindi sempre dalla parte giusta — bloccare un run in più è recuperabile, sforare la quota no.
+- **Il cron e `/cerca` non valgono uguale.** Il cron può saltare un giro senza che nessuno se ne accorga; un `/cerca` è una persona che sta aspettando. Le esecuzioni programmate si fermano quindi a `monthlySearches − reserveForOnDemand`, lasciando la riserva alle sole richieste esplicite. La distinzione arriva da `RUN_MODE`, che il workflow deriva dal tipo di evento.
+
+Il consumo vive in `data/last_prices.json` sotto `quota`, un giorno per riga, potato oltre la finestra. Quando la quota è finita il run **non parte** — una ricerca che sappiamo verrà rifiutata è solo un modo più lento di fallire — e arriva un messaggio Telegram con la data in cui torna disponibile, invece del silenzio che si confonde con "nessuna variazione di prezzo".
 
 ### Come rientrare nella quota
 
@@ -521,8 +539,8 @@ Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche p
 |---|---|
 | `departureStrideDays: 30` | 6 date → 3 date, **−50%** |
 | `durationsToTest: [21]` | 2 durate → 1, **−50%** |
-| Un solo run/giorno invece di due | rimuovi una delle due righe `cron:` in `monitor.yml`, **−50%** |
-| Cron settimanale (`0 7 * * 1`) | **−85%** sul mese |
+| Cron settimanale (`0 7 * * 1`) invece di 2×/settimana | **−50%** sul mese |
+| Alzare `reserveForOnDemand` | sposta quota dal cron a `/cerca`, a parità di totale |
 | Meno `candidates` | proporzionale |
 
 `/cerca` da Telegram consuma le stesse ricerche di un run schedulato: se lo usi spesso, tienine conto nel budget di quota.

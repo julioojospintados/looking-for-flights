@@ -166,5 +166,14 @@
         }
       ]
     }
+  },
+  "quota": {
+    "_comment": "Consumo API nella finestra mobile di 30 giorni. Le 225 del 2026-08-01 sono il valore reale comunicato da SerpApi: senza questo seme il contatore sarebbe ripartito da zero, autorizzando altre 250 ricerche gia' spese.",
+    "window": [
+      {
+        "date": "2026-08-01",
+        "calls": 225
+      }
+    ]
   }
 }
