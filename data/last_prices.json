@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "lastUpdate": "2026-08-01T21:07:25.176Z",
+  "lastUpdate": "2026-08-02T20:50:36.253Z",
   "trips": {
     "asia-autunno-2026": {
       "tripName": "Asia Autunno 2026",
       "provider": "serpapi",
       "currency": "EUR",
-      "updatedAt": "2026-08-01T21:07:23.810Z",
+      "updatedAt": "2026-08-02T20:50:35.627Z",
       "winner": "india-rajasthan",
       "results": [
         {
@@ -15,10 +15,10 @@
           "hub": "DEL",
           "rank": 1,
           "status": "ok",
-          "price": 426,
+          "price": 439,
           "origin": "MXP",
-          "outboundDate": "2026-09-15",
-          "returnDate": "2026-09-29",
+          "outboundDate": "2026-09-01",
+          "returnDate": "2026-09-22",
           "maxDays": null,
           "totalCostStandard": null,
           "originBreakdown": [
@@ -33,41 +33,10 @@
             {
               "id": "milano",
               "status": "ok",
-              "price": 426,
+              "price": 439,
               "origin": "MXP",
-              "outboundDate": "2026-09-15",
-              "returnDate": "2026-09-29"
-            }
-          ]
-        },
-        {
-          "id": "indonesia-giava-lombok",
-          "name": "Indonesia (Giava/Lombok)",
-          "hub": "CGK",
-          "rank": 2,
-          "status": "ok",
-          "price": 480,
-          "origin": "MXP",
-          "outboundDate": "2026-09-29",
-          "returnDate": "2026-10-20",
-          "maxDays": null,
-          "totalCostStandard": null,
-          "originBreakdown": [
-            {
-              "id": "torino",
-              "status": "ok",
-              "price": 691,
-              "origin": "TRN",
-              "outboundDate": "2026-10-27",
-              "returnDate": "2026-11-10"
-            },
-            {
-              "id": "milano",
-              "status": "ok",
-              "price": 480,
-              "origin": "MXP",
-              "outboundDate": "2026-09-29",
-              "returnDate": "2026-10-20"
+              "outboundDate": "2026-09-01",
+              "returnDate": "2026-09-22"
             }
           ]
         },
@@ -75,30 +44,61 @@
           "id": "thailandia-isole-golfo",
           "name": "Thailandia (Isole del Golfo)",
           "hub": "BKK",
-          "rank": 3,
+          "rank": 2,
           "status": "ok",
-          "price": 482,
+          "price": 476,
           "origin": "MXP",
-          "outboundDate": "2026-10-31",
-          "returnDate": "2026-11-14",
+          "outboundDate": "2026-09-01",
+          "returnDate": "2026-09-22",
           "maxDays": null,
           "totalCostStandard": null,
           "originBreakdown": [
             {
               "id": "torino",
               "status": "ok",
-              "price": 603,
+              "price": 615,
               "origin": "TRN",
-              "outboundDate": "2026-10-13",
-              "returnDate": "2026-11-03"
+              "outboundDate": "2026-09-01",
+              "returnDate": "2026-09-22"
             },
             {
               "id": "milano",
               "status": "ok",
-              "price": 482,
+              "price": 476,
               "origin": "MXP",
+              "outboundDate": "2026-09-01",
+              "returnDate": "2026-09-22"
+            }
+          ]
+        },
+        {
+          "id": "indonesia-giava-lombok",
+          "name": "Indonesia (Giava/Lombok)",
+          "hub": "CGK",
+          "rank": 3,
+          "status": "ok",
+          "price": 647,
+          "origin": "MXP",
+          "outboundDate": "2026-09-01",
+          "returnDate": "2026-09-22",
+          "maxDays": null,
+          "totalCostStandard": null,
+          "originBreakdown": [
+            {
+              "id": "torino",
+              "status": "ok",
+              "price": 859,
+              "origin": "TRN",
               "outboundDate": "2026-10-31",
-              "returnDate": "2026-11-14"
+              "returnDate": "2026-11-21"
+            },
+            {
+              "id": "milano",
+              "status": "ok",
+              "price": 647,
+              "origin": "MXP",
+              "outboundDate": "2026-09-01",
+              "returnDate": "2026-09-22"
             }
           ]
         },
@@ -106,73 +106,42 @@
           "id": "vietnam-sud-cambogia",
           "name": "Vietnam Sud + Cambogia",
           "hub": "SGN",
-          "rank": 4,
-          "status": "ok",
-          "price": 504,
-          "origin": "MXP",
-          "outboundDate": "2026-09-29",
-          "returnDate": "2026-10-20",
+          "rank": null,
+          "status": "quota_exceeded",
+          "price": null,
+          "origin": null,
+          "outboundDate": null,
+          "returnDate": null,
           "maxDays": null,
           "totalCostStandard": null,
-          "originBreakdown": [
-            {
-              "id": "torino",
-              "status": "ok",
-              "price": 729,
-              "origin": "TRN",
-              "outboundDate": "2026-09-01",
-              "returnDate": "2026-09-15"
-            },
-            {
-              "id": "milano",
-              "status": "ok",
-              "price": 504,
-              "origin": "MXP",
-              "outboundDate": "2026-09-29",
-              "returnDate": "2026-10-20"
-            }
-          ]
+          "originBreakdown": []
         },
         {
           "id": "malesia-peninsulare",
           "name": "Malesia Peninsulare",
           "hub": "KUL",
-          "rank": 5,
-          "status": "ok",
-          "price": 530,
-          "origin": "MXP",
-          "outboundDate": "2026-09-15",
-          "returnDate": "2026-09-29",
+          "rank": null,
+          "status": "quota_exceeded",
+          "price": null,
+          "origin": null,
+          "outboundDate": null,
+          "returnDate": null,
           "maxDays": null,
           "totalCostStandard": null,
-          "originBreakdown": [
-            {
-              "id": "torino",
-              "status": "ok",
-              "price": 610,
-              "origin": "TRN",
-              "outboundDate": "2026-09-15",
-              "returnDate": "2026-09-29"
-            },
-            {
-              "id": "milano",
-              "status": "ok",
-              "price": 530,
-              "origin": "MXP",
-              "outboundDate": "2026-09-15",
-              "returnDate": "2026-09-29"
-            }
-          ]
+          "originBreakdown": []
         }
       ]
     }
   },
   "quota": {
-    "_comment": "Consumo API nella finestra mobile di 30 giorni. Le 225 del 2026-08-01 sono il valore reale comunicato da SerpApi: senza questo seme il contatore sarebbe ripartito da zero, autorizzando altre 250 ricerche gia' spese.",
     "window": [
       {
         "date": "2026-08-01",
         "calls": 225
+      },
+      {
+        "date": "2026-08-02",
+        "calls": 14
       }
     ]
   }
