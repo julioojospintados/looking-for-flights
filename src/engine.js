@@ -99,7 +99,28 @@ export function buildSearchPlan(trip) {
       plan.push({ outboundDate, returnDate: addDays(outboundDate, durationDays), durationDays });
     }
   }
-  return plan;
+
+  // Scadenza sul ritorno: una partenza tardiva può essere dentro la finestra e
+  // comunque inutilizzabile, perché la durata la spinge oltre la data entro cui
+  // bisogna essere tornati. Filtrare qui — e non dopo la ricerca — significa
+  // non spendere quota API per combinazioni che verrebbero comunque scartate.
+  const returnBy = trip.returnBy ? String(trip.returnBy) : null;
+  if (!returnBy) return plan;
+
+  const usable = plan.filter((slot) => slot.returnDate <= returnBy);
+
+  if (usable.length === 0) {
+    throw new Error(
+      `Nessuna combinazione possibile per "${trip.id}": con durate [${durations.join(', ')}] ` +
+        `nessuna partenza fra ${from} e ${to} rientra entro "returnBy" (${returnBy}).`,
+    );
+  }
+  if (usable.length < plan.length) {
+    console.log(
+      `   📅 ${plan.length - usable.length} combinazioni scartate: ritorno oltre il ${returnBy}.`,
+    );
+  }
+  return usable;
 }
 
 /**
@@ -111,10 +132,16 @@ export function buildSearchPlan(trip) {
  * — a different return date, a multi-city rewrite — and an itinerary that does
  * not match the requested window must never reach the ranking.
  *
+ * La stessa logica vale per `returnBy`: il piano non contiene combinazioni che
+ * lo violano, ma il provider può restituire un ritorno diverso da quello
+ * chiesto, e una data oltre la scadenza rende il viaggio inutilizzabile a
+ * prescindere da quanto costi.
+ *
  * @param {{ outboundDate: string, returnDate: string, durationDays?: number }} quote
  * @param {{ min: number, max: number }} tripDuration
+ * @param {string|null} [returnBy] Data massima di rientro (YYYY-MM-DD).
  */
-export function isDurationAllowed(quote, tripDuration) {
+export function isDurationAllowed(quote, tripDuration, returnBy = null) {
   const min = Number(tripDuration.min);
   const max = Number(tripDuration.max);
 
@@ -127,6 +154,7 @@ export function isDurationAllowed(quote, tripDuration) {
   }
 
   if (!Number.isFinite(nights)) return false;
+  if (returnBy && String(quote.returnDate) > String(returnBy)) return false;
   return nights >= min && nights <= max;
 }
 
@@ -246,11 +274,13 @@ async function searchCandidate(candidate, trip, provider, context) {
       if (!quote) continue;
 
       // Enforce the trip-length constraint on what actually came back.
-      if (!isDurationAllowed(quote, trip.tripDuration)) {
+      if (!isDurationAllowed(quote, trip.tripDuration, trip.returnBy)) {
         rejectedForDuration += 1;
         console.warn(
-          `   ⚠️  ${candidate.hub} ${quote.outboundDate}→${quote.returnDate}: durata fuori ` +
-            `dai limiti ${trip.tripDuration.min}-${trip.tripDuration.max} giorni, scartato`,
+          `   ⚠️  ${candidate.hub} ${quote.outboundDate}→${quote.returnDate}: fuori dai limiti ` +
+            `(${trip.tripDuration.min}-${trip.tripDuration.max} giorni` +
+            (trip.returnBy ? `, rientro entro il ${trip.returnBy}` : '') +
+            '), scartato',
         );
         continue;
       }
@@ -622,6 +652,13 @@ export function validateTrip(trip) {
   }
   if (!trip.departureWindow?.from || !trip.departureWindow?.to) {
     errors.push('"departureWindow.from" e "departureWindow.to" sono obbligatori');
+  }
+  if (trip.returnBy !== undefined && trip.returnBy !== null) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(trip.returnBy))) {
+      errors.push('"returnBy" deve essere una data YYYY-MM-DD');
+    } else if (trip.departureWindow?.from && String(trip.returnBy) <= String(trip.departureWindow.from)) {
+      errors.push('"returnBy" deve essere successiva a "departureWindow.from"');
+    }
   }
   if (!trip.tripDuration?.min || !trip.tripDuration?.max) {
     errors.push('"tripDuration.min" e "tripDuration.max" sono obbligatori');

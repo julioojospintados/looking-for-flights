@@ -7,6 +7,61 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-02 — Scadenza sul rientro, e ricerca dimagrita
+
+Tre cambi che si tengono insieme: un vincolo nuovo, due mete in meno, e il
+costo per run che scende da 18 a 12 ricerche.
+
+### `returnBy`: il ritorno entro il 5 novembre
+
+Vincolo **indipendente** dalla finestra di partenza, e la distinzione non è
+formale: una partenza può essere dentro `departureWindow` e comunque
+inutilizzabile, perché la durata la spinge oltre la data entro cui bisogna
+essere rientrati. Con 21 giorni e scadenza al 5 novembre, l'ultima partenza
+utile è il **15 ottobre** — il 31 ottobre rientrerebbe il 21 novembre.
+
+Si sarebbe potuto ottenere lo stesso effetto accorciando `departureWindow.to`
+al 15 ottobre, ed è la scorciatoia sbagliata: quel numero dipende dalla durata
+del viaggio, quindi andrebbe ricalcolato a mano ogni volta che cambia
+`durationsToTest`, e sarebbe silenziosamente errato con più durate in gioco
+(14 giorni permetterebbero partenze fino al 22 ottobre). La regola dichiara
+l'intento e lascia fare il conto al programma.
+
+Applicata in due punti, per due motivi diversi:
+
+1. **Nel piano di ricerca**, prima di chiamare l'API: le combinazioni escluse
+   non vengono cercate, quindi non costano quota. È anche il motivo per cui il
+   costo per run dipende da `returnBy`.
+2. **Sui risultati**, insieme al controllo su `tripDuration`: il provider è
+   libero di restituire un ritorno diverso da quello chiesto, e una data oltre
+   la scadenza rende il viaggio inutilizzabile a prescindere dal prezzo.
+
+Se il filtro non lascia sopravvivere nulla il run si ferma con un errore
+esplicito, invece di cercare a vuoto e riportare "nessun volo trovato" su
+tutte le mete — un sintomo che manderebbe a cercare il guasto nel posto
+sbagliato.
+
+### Meno mete, meno ricerche
+
+Rimossi Vietnam+Cambogia (SGN) e Malesia (KUL), commentati in `mete.txt`
+invece che cancellati: l'identità di una meta è il codice HUB, quindi
+riattivarle ritrova lo storico prezzi già raccolto.
+
+Il conto per run: 4 mete × 3 date × 1 durata = **12 ricerche**, contro le 18
+di prima e le 60 di ieri. Le tre date (01/09, 23/09, 15/10) coprono l'intera
+finestra ancora utilizzabile: la quarta, il 31/10, è caduta con la scadenza
+sul rientro.
+
+Di conseguenza `reserveForOnDemand` torna a 100: 9 esecuzioni programmate per
+finestra costano 108 ricerche, dentro il tetto `250 − 100 = 150`, e le 100 di
+riserva valgono 8 `/cerca`.
+
+> Nota: si testa solo la durata di 21 giorni. Aggiungere anche 14 in
+> `durationsToTest` raddoppierebbe il costo per run — e permetterebbe partenze
+> fino al 22 ottobre, che la durata di 3 settimane esclude.
+
+---
+
 ## 2026-08-02 — Sri Lanka fra le mete
 
 Aggiunta scommentando la riga già pronta in `config/mete.txt` (`CMB`, 25 €/gg,

@@ -18,6 +18,7 @@ Due volte a settimana una GitHub Action cerca il volo A/R più economico verso o
   - [Comandi del bot](#comandi-del-bot)
 - [Riferimento configurazione](#-riferimento-configurazione)
   - [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico)
+  - [Scadenza sul rientro (returnBy)](#scadenza-sul-rientro-returnby)
   - [Prezzo per aeroporto di partenza (originGroups)](#prezzo-per-aeroporto-di-partenza-origingroups)
   - [Formato della notifica](#formato-della-notifica)
 - [Consumo della quota API](#-consumo-della-quota-api-leggimi)
@@ -447,6 +448,22 @@ Restano visibili giorni sostenibili (già tagliati a 21), prezzo del volo e cost
 }
 ```
 
+### Scadenza sul rientro (`returnBy`)
+
+```jsonc
+"departureWindow": { "from": "2026-09-01", "to": "2026-10-31" },
+"returnBy": "2026-11-05"
+```
+
+Vincolo **indipendente** dalla finestra di partenza: una partenza può essere dentro `departureWindow` e comunque inutilizzabile, perché la durata del viaggio la spinge oltre la data entro cui bisogna essere rientrati. Con durata 21 giorni e `returnBy` al 5 novembre, l'ultima partenza utile è il **15 ottobre** — il 31 ottobre rientrerebbe il 21 novembre.
+
+Applicato in due punti, per due motivi diversi:
+
+1. **Nel piano di ricerca**, prima di chiamare l'API: le combinazioni escluse non vengono nemmeno cercate, quindi non costano quota. È anche la ragione per cui alzare `returnBy` o accorciare le durate cambia il numero di ricerche per run.
+2. **Sui risultati**, come `tripDuration`: il provider è libero di restituire un ritorno diverso da quello chiesto, e una data oltre la scadenza rende il viaggio inutilizzabile a prescindere dal prezzo.
+
+Se nessuna combinazione sopravvive al filtro il run si ferma con un errore esplicito, invece di cercare a vuoto e riportare "nessun volo trovato" su tutte le mete.
+
 ### Prezzo per aeroporto di partenza (`originGroups`)
 
 La classifica è decisa dal prezzo **più basso in assoluto**, che con Milano in lista è quasi sempre Malpensa o Orio. Il risultato è che chi parte da Torino non scopriva mai quanto costa *da casa sua*: il volo da TRN veniva cercato (è in `origins`) ma, se non vinceva, spariva dal messaggio.
@@ -512,7 +529,7 @@ Il numero di ricerche per run è:
 ricerche = destinazioni × date_di_partenza_campionate × durate_testate
 ```
 
-Con la config attuale: **6 destinazioni × 3 date × 1 durata = 18 ricerche per run**. Il cron gira **due volte a settimana** (lunedì e giovedì): al massimo 9 esecuzioni in una finestra di 30 giorni, cioè **162 ricerche**, più i comandi `/cerca` — ognuno dei quali consuma un run intero.
+Con la config attuale: **4 destinazioni × 3 date × 1 durata = 12 ricerche per run**. Il cron gira **due volte a settimana** (lunedì e giovedì): al massimo 9 esecuzioni in una finestra di 30 giorni, cioè **108 ricerche**, più i comandi `/cerca` — ognuno dei quali consuma un run intero.
 
 ⚠️ `maxApiCallsPerRun` deve **coprire il totale**: se è più basso, le ultime mete in ordine di configurazione vengono saltate in silenzio per esaurimento del budget interno del run. `npm run mete` lo ricalcola e avvisa quando aggiungi una destinazione.
 
@@ -523,7 +540,7 @@ Con la config attuale: **6 destinazioni × 3 date × 1 durata = 18 ricerche per 
 ```jsonc
 "apiQuota": {
   "monthlySearches": 250,      // il tuo piano SerpApi
-  "reserveForOnDemand": 85,    // quota che il cron NON può toccare
+  "reserveForOnDemand": 100,   // quota che il cron NON può toccare
   "windowDays": 30
 }
 ```
@@ -532,7 +549,7 @@ Due scelte di progetto dietro questi tre numeri:
 
 - **Finestra mobile di 30 giorni, non mese solare.** SerpApi azzera il contatore all'anniversario dell'iscrizione, una data che il programma non conosce. La finestra mobile evita di doverla sapere: è un po' conservativa a cavallo del rinnovo, e sbaglia quindi sempre dalla parte giusta — bloccare un run in più è recuperabile, sforare la quota no.
 - **Il cron e `/cerca` non valgono uguale.** Il cron può saltare un giro senza che nessuno se ne accorga; un `/cerca` è una persona che sta aspettando. Le esecuzioni programmate si fermano quindi a `monthlySearches − reserveForOnDemand`, lasciando la riserva alle sole richieste esplicite. La distinzione arriva da `RUN_MODE`, che il workflow deriva dal tipo di evento.
-- **La riserva va tarata sui conti, non a occhio.** Con 18 ricerche/run e 9 esecuzioni programmate per finestra servono 162 ricerche: la riserva è 85 perché `250 − 85 = 165` le copra tutte. Alzandola, il tetto del cron scenderebbe sotto 162 e l'ultimo run del mese verrebbe bloccato **di routine** invece che per eccezione. Le 85 rimaste valgono 4 `/cerca`.
+- **La riserva va tarata sui conti, non a occhio.** Con 12 ricerche/run e 9 esecuzioni programmate per finestra servono 108 ricerche, coperte dal tetto `250 − 100 = 150`. Se la riserva fosse tanto alta da portare il tetto sotto il fabbisogno, l'ultimo run del mese verrebbe bloccato **di routine** invece che per eccezione — e un limite che scatta sempre non è un limite, è un guasto travestito. Le 100 di riserva valgono 8 `/cerca`.
 
 Il consumo vive in `data/last_prices.json` sotto `quota`, un giorno per riga, potato oltre la finestra. Quando la quota è finita il run **non parte** — una ricerca che sappiamo verrà rifiutata è solo un modo più lento di fallire — e arriva un messaggio Telegram con la data in cui torna disponibile, invece del silenzio che si confonde con "nessuna variazione di prezzo".
 
