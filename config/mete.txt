@@ -25,9 +25,9 @@ Indonesia (Giava/Lombok)      | CGK | 27 | 70
 Thailandia (Isole del Golfo)  | BKK | 30 | 55
 Vietnam Sud + Cambogia        | SGN | 27 | 60
 Malesia Peninsulare           | KUL | 33 | 0
+Sri Lanka                     | CMB | 25 | 40
 
 # Esempi di altre mete, scommenta per attivarle:
-# Sri Lanka                   | CMB | 25 | 40
 # Filippine (Palawan)         | MNL | 30 | 90
 # Nepal (Himalaya)            | KTM | 22 | 50
 # Giappone                    | NRT | 75 | 0

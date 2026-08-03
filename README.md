@@ -512,7 +512,9 @@ Il numero di ricerche per run è:
 ricerche = destinazioni × date_di_partenza_campionate × durate_testate
 ```
 
-Con la config attuale: **5 destinazioni × 3 date × 1 durata = 15 ricerche per run**. Il cron gira **due volte a settimana** (lunedì e giovedì): **~130 ricerche al mese**, più i comandi `/cerca` — ognuno dei quali consuma un run intero.
+Con la config attuale: **6 destinazioni × 3 date × 1 durata = 18 ricerche per run**. Il cron gira **due volte a settimana** (lunedì e giovedì): al massimo 9 esecuzioni in una finestra di 30 giorni, cioè **162 ricerche**, più i comandi `/cerca` — ognuno dei quali consuma un run intero.
+
+⚠️ `maxApiCallsPerRun` deve **coprire il totale**: se è più basso, le ultime mete in ordine di configurazione vengono saltate in silenzio per esaurimento del budget interno del run. `npm run mete` lo ricalcola e avvisa quando aggiungi una destinazione.
 
 ### Il tetto che serviva davvero
 
@@ -521,7 +523,7 @@ Con la config attuale: **5 destinazioni × 3 date × 1 durata = 15 ricerche per 
 ```jsonc
 "apiQuota": {
   "monthlySearches": 250,      // il tuo piano SerpApi
-  "reserveForOnDemand": 100,   // quota che il cron NON può toccare
+  "reserveForOnDemand": 85,    // quota che il cron NON può toccare
   "windowDays": 30
 }
 ```
@@ -530,6 +532,7 @@ Due scelte di progetto dietro questi tre numeri:
 
 - **Finestra mobile di 30 giorni, non mese solare.** SerpApi azzera il contatore all'anniversario dell'iscrizione, una data che il programma non conosce. La finestra mobile evita di doverla sapere: è un po' conservativa a cavallo del rinnovo, e sbaglia quindi sempre dalla parte giusta — bloccare un run in più è recuperabile, sforare la quota no.
 - **Il cron e `/cerca` non valgono uguale.** Il cron può saltare un giro senza che nessuno se ne accorga; un `/cerca` è una persona che sta aspettando. Le esecuzioni programmate si fermano quindi a `monthlySearches − reserveForOnDemand`, lasciando la riserva alle sole richieste esplicite. La distinzione arriva da `RUN_MODE`, che il workflow deriva dal tipo di evento.
+- **La riserva va tarata sui conti, non a occhio.** Con 18 ricerche/run e 9 esecuzioni programmate per finestra servono 162 ricerche: la riserva è 85 perché `250 − 85 = 165` le copra tutte. Alzandola, il tetto del cron scenderebbe sotto 162 e l'ultimo run del mese verrebbe bloccato **di routine** invece che per eccezione. Le 85 rimaste valgono 4 `/cerca`.
 
 Il consumo vive in `data/last_prices.json` sotto `quota`, un giorno per riga, potato oltre la finestra. Quando la quota è finita il run **non parte** — una ricerca che sappiamo verrà rifiutata è solo un modo più lento di fallire — e arriva un messaggio Telegram con la data in cui torna disponibile, invece del silenzio che si confonde con "nessuna variazione di prezzo".
 

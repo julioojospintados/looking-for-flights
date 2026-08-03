@@ -4,16 +4,19 @@
     "provider": "serpapi",
     "currency": "EUR",
     "adults": 1,
-
     "_comment_apiQuota": "Tetto che attraversa i run, non il singolo run (quello è sampling.maxApiCallsPerRun). monthlySearches = il piano SerpApi. reserveForOnDemand = quota che il cron NON può toccare, riservata a /cerca: il cron può saltare un giro senza che nessuno se ne accorga, un /cerca è una persona che aspetta. Finestra mobile di 30 giorni perché la data di rinnovo del piano non è nota al programma.",
+    "_comment_apiQuota_conti": "Con 18 ricerche/run e cron lun+gio, una finestra di 30 giorni contiene al massimo 9 esecuzioni programmate = 162 ricerche: la riserva è tarata a 85 perché 250-85=165 le copra tutte. Con una riserva più alta il tetto scenderebbe sotto 162 e l'ultimo run del mese verrebbe bloccato di routine invece che per eccezione. Restano 85 ricerche per i /cerca, cioè 4 richieste esplicite.",
     "apiQuota": {
       "monthlySearches": 250,
-      "reserveForOnDemand": 100,
+      "reserveForOnDemand": 85,
       "windowDays": 30
     },
     "notify": {
       "priceDropThreshold": 15,
-      "channels": ["telegram", "slack"]
+      "channels": [
+        "telegram",
+        "slack"
+      ]
     }
   },
   "trips": [
@@ -24,38 +27,50 @@
       "_comment_budget": "Il budget è privato: non va qui. Viene letto a runtime dalla env var BUDGET_ASIA_AUTUNNO_2026 (GitHub Secret in CI, .env in locale) — vedi .env.example. Senza quella variabile il monitor si rifiuta di partire.",
       "currency": "EUR",
       "adults": 1,
-
       "departureWindow": {
         "from": "2026-09-01",
         "to": "2026-10-31"
       },
-
       "tripDuration": {
         "min": 14,
         "max": 21,
         "standard": 21
       },
-
-      "origins": ["MXP", "BGY", "TRN"],
-
+      "origins": [
+        "MXP",
+        "BGY",
+        "TRN"
+      ],
       "_comment_originGroups": "La classifica usa il prezzo più basso in assoluto, che è quasi sempre da Milano. Questi gruppi fanno sì che ogni notifica mostri COMUNQUE il miglior prezzo da Torino accanto a quello da Malpensa/Orio, per decidere se lo sconto vale il viaggio fino a Milano. Non costano ricerche extra: i prezzi dei singoli aeroporti sono già dentro la stessa risposta del provider.",
       "originGroups": [
-        { "id": "torino", "label": "Torino", "airports": ["TRN"] },
-        { "id": "milano", "label": "Milano", "airports": ["MXP", "BGY"] }
+        {
+          "id": "torino",
+          "label": "Torino",
+          "airports": [
+            "TRN"
+          ]
+        },
+        {
+          "id": "milano",
+          "label": "Milano",
+          "airports": [
+            "MXP",
+            "BGY"
+          ]
+        }
       ],
-
       "sampling": {
-        "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Con 5 mete: stride 30 = 3 date, 1 durata = 15 ricerche per run. Era 60 (stride 14 = 6 date x 2 durate), cioè 250 ricerche/mese bruciate in 4 run.",
+        "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Con 6 mete: stride 30 = 3 date, 1 durata = 18 ricerche per run. Il tetto deve coprire il totale, altrimenti le ultime mete in ordine di configurazione vengono saltate in silenzio per esaurimento del budget interno.",
         "departureStrideDays": 30,
-        "durationsToTest": [21],
-        "maxApiCallsPerRun": 15,
+        "durationsToTest": [
+          21
+        ],
+        "maxApiCallsPerRun": 18,
         "concurrency": 3
       },
-
       "notify": {
         "priceDropThreshold": 15
       },
-
       "candidates": [
         {
           "id": "india-rajasthan",
@@ -96,6 +111,14 @@
           "groundCostPerDay": 33,
           "fixedExtra": 0,
           "notes": "Nessun costo fisso aggiuntivo previsto."
+        },
+        {
+          "id": "sri-lanka",
+          "name": "Sri Lanka",
+          "hub": "CMB",
+          "groundCostPerDay": 25,
+          "fixedExtra": 40,
+          "notes": null
         }
       ]
     }

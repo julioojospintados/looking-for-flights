@@ -7,6 +7,29 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-02 — Sri Lanka fra le mete
+
+Aggiunta scommentando la riga già pronta in `config/mete.txt` (`CMB`, 25 €/gg,
+40 € di extra) e sincronizzando con `npm run mete`: è il flusso previsto dal
+progetto, e lo script ha fatto il suo mestiere avvisando che le 6 mete non
+stavano più nel tetto di 15 ricerche per run.
+
+Due numeri da rifare, entrambi conseguenza diretta della sesta meta:
+
+- **`maxApiCallsPerRun` 15 → 18.** Il tetto deve coprire il totale
+  (6 mete × 3 date × 1 durata): più basso, le ultime mete in ordine di
+  configurazione verrebbero saltate **in silenzio** per esaurimento del
+  budget interno del run — un dato mancante che sembra un volo non trovato.
+- **`reserveForOnDemand` 100 → 85.** Con 18 ricerche a run, una finestra di
+  30 giorni contiene al massimo 9 esecuzioni programmate = 162 ricerche. Una
+  riserva di 100 lascerebbe al cron un tetto di 150, sotto il suo stesso
+  fabbisogno: l'ultimo run del mese verrebbe bloccato **di routine** invece
+  che per eccezione, e un limite che scatta sempre non è un limite, è un bug
+  con l'aria di essere intenzionale. A 85, il tetto del cron è 165 e le 85
+  rimaste valgono 4 `/cerca`.
+
+---
+
 ## 2026-08-02 — 225 ricerche su 250 bruciate in due giorni
 
 Email di SerpApi: *"You've used 90% of your searches"* — 225 su 250 del piano
