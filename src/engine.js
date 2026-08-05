@@ -348,6 +348,134 @@ function collectOriginOffers(bestByOrigin, quote) {
 }
 
 /**
+ * Combinazioni open-jaw: andata da un gruppo di aeroporti, ritorno su un
+ * altro (anche lo stesso). Serve quando l'aeroporto di casa (es. Torino) non
+ * è per forza il più economico su entrambe le tratte, ma tornarci vale
+ * comunque qualcosa — il volo A/R di `searchCandidate` non può rispondere a
+ * questa domanda perché lega per costruzione andata e ritorno allo stesso
+ * aeroporto.
+ *
+ * Costo in quota: una chiamata one-way per ogni data di andata *distinta* nel
+ * piano, una per ogni data di ritorno distinta — non per ogni combinazione.
+ * Le combinazioni stesse (gruppo di andata × gruppo di ritorno) sono gratis:
+ * sono solo raggruppamenti della stessa manciata di risposte.
+ *
+ * @param {object} candidate
+ * @param {object} trip
+ * @param {import('./api/flightProvider.js').FlightProvider} provider
+ * @param {{ plan: Array, budget: { remaining: number }, currency: string, adults: number, originGroups: Array }} context
+ * @returns {Promise<Array>} Combinazioni trovate (non filtrate, non ordinate).
+ */
+async function searchOpenJaw(candidate, trip, provider, context) {
+  const { plan, budget, currency, adults, originGroups } = context;
+  if (!provider.supportsOneWay || originGroups.length < 2) return [];
+
+  const outboundDates = [...new Set(plan.map((slot) => slot.outboundDate))];
+  const returnDates = [...new Set(plan.map((slot) => slot.returnDate))];
+
+  const outboundByDate = new Map();
+  for (const date of outboundDates) {
+    if (budget.remaining <= 0) break;
+    budget.remaining -= 1;
+    try {
+      const { byLeg } = await provider.searchOneWay({
+        origins: trip.origins,
+        destination: candidate.hub,
+        date,
+        currency,
+        adults,
+      });
+      outboundByDate.set(date, byLeg);
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
+      console.warn(`   ⚠️  ${candidate.hub} andata one-way ${date}: ${error.message}`);
+    }
+  }
+
+  const returnByDate = new Map();
+  for (const date of returnDates) {
+    if (budget.remaining <= 0) break;
+    budget.remaining -= 1;
+    try {
+      const { byLeg } = await provider.searchOneWay({
+        origins: [candidate.hub],
+        destination: trip.origins.join(','),
+        date,
+        currency,
+        adults,
+      });
+      returnByDate.set(date, byLeg);
+    } catch (error) {
+      if (error instanceof QuotaExceededError) throw error;
+      console.warn(`   ⚠️  ${candidate.hub} ritorno one-way ${date}: ${error.message}`);
+    }
+  }
+
+  const combos = [];
+  for (const slot of plan) {
+    const outLegs = outboundByDate.get(slot.outboundDate);
+    const backLegs = returnByDate.get(slot.returnDate);
+    if (!outLegs || !backLegs) continue;
+
+    for (const originOut of originGroups) {
+      const outLeg = cheapestLegInGroup(outLegs, originOut.airports, candidate.hub, 'out');
+      if (!outLeg) continue;
+
+      for (const originBack of originGroups) {
+        const backLeg = cheapestLegInGroup(backLegs, originBack.airports, candidate.hub, 'back');
+        if (!backLeg) continue;
+
+        combos.push({
+          outboundDate: slot.outboundDate,
+          returnDate: slot.returnDate,
+          durationDays: slot.durationDays,
+          originOut,
+          originBack,
+          price: round2(outLeg.price + backLeg.price),
+          outbound: outLeg.outbound,
+          returnFlight: backLeg.outbound,
+          outOrigin: outLeg.origin,
+          backDestination: backLeg.destination,
+        });
+      }
+    }
+  }
+
+  return combos;
+}
+
+/** La tratta più economica di un leg one-way fra gli aeroporti di un gruppo. */
+function cheapestLegInGroup(byLeg, airports, hub, direction) {
+  let best = null;
+  for (const entry of Object.values(byLeg)) {
+    const airport = direction === 'out' ? entry.origin : entry.destination;
+    const other = direction === 'out' ? entry.destination : entry.origin;
+    if (other !== hub || !airports.includes(airport)) continue;
+    if (!best || entry.price < best.price) best = entry;
+  }
+  return best;
+}
+
+/**
+ * Il meglio per ogni forma di combinazione (gruppo di andata × gruppo di
+ * ritorno), non il meglio in assoluto: l'utente vuole confrontare "Torino su
+ * Torino" con "Bergamo su Torino" per le STESSE tratte, non vedere sparire
+ * un'opzione solo perché un'altra combinazione, su date diverse, costava meno.
+ *
+ * @param {Array} combos
+ * @returns {Array} Al più una voce per coppia di gruppi, ordinate per prezzo.
+ */
+function bestOpenJawPerShape(combos) {
+  const byShape = new Map();
+  for (const combo of combos) {
+    const key = `${combo.originOut.id}>${combo.originBack.id}`;
+    const previous = byShape.get(key);
+    if (!previous || combo.price < previous.price) byShape.set(key, combo);
+  }
+  return [...byShape.values()].sort((a, b) => a.price - b.price);
+}
+
+/**
  * Collapse per-airport minima into the origin groups declared on the trip.
  *
  * The ranking is decided by the absolute cheapest fare, which in practice is
@@ -483,8 +611,17 @@ export async function runTrip(trip, provider) {
     }
 
     try {
+      const searchContext = { plan, budget, currency, adults, originGroups };
       const { best, bestByOrigin, errors, searched, skippedForBudget, rejectedForDuration } =
-        await searchCandidate(candidate, trip, provider, { plan, budget, currency, adults });
+        await searchCandidate(candidate, trip, provider, searchContext);
+
+      // Combinazioni andata/ritorno da aeroporti diversi (vedi searchOpenJaw):
+      // solo informative, non entrano nella classifica né nel calcolo del
+      // vincitore — quello resta legato al volo A/R sopra, per non cambiare il
+      // significato di una notifica di calo prezzo a metà implementazione.
+      const openJawCombos = quotaExhausted
+        ? []
+        : await searchOpenJaw(candidate, trip, provider, searchContext);
 
       const base = {
         id: candidate.id,
@@ -514,6 +651,7 @@ export async function runTrip(trip, provider) {
           price: null,
           maxDays: null,
           totalCostStandard: null,
+          openJawCombos: bestOpenJawPerShape(openJawCombos),
         };
       }
 
@@ -550,6 +688,8 @@ export async function runTrip(trip, provider) {
         outbound: best.outbound ?? null,
         bookingUrl: best.bookingUrl ?? null,
         originBreakdown,
+        // Informative, non entrano nel ranking: vedi searchOpenJaw.
+        openJawCombos: bestOpenJawPerShape(openJawCombos),
         // Senza budget i campi economici restano null anziché sparire: chi
         // legge il risultato (rendering, snapshot, diff) trova sempre le stesse
         // chiavi e non deve indovinare la modalità del run.

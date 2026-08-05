@@ -34,6 +34,10 @@ class MockProvider extends FlightProvider {
     return true;
   }
 
+  get supportsOneWay() {
+    return true;
+  }
+
   /**
    * @param {import('./flightProvider.js').SearchRequest} request
    * @returns {Promise<import('./flightProvider.js').FlightQuote|null>}
@@ -97,6 +101,48 @@ class MockProvider extends FlightProvider {
       )}`,
       provider: this.name,
     };
+  }
+
+  /**
+   * @param {{ origins: string[], destination: string, date: string, currency: string, adults: number }} request
+   * @returns {Promise<{ byLeg: Record<string, object> }>}
+   */
+  async searchOneWay(request) {
+    const { origins, destination, date } = request;
+    // Un one-way arriva anche con `origins=[hub]` e `destination` = lista di
+    // aeroporti di casa (per il ritorno): tratto entrambi i lati allo stesso
+    // modo, il seed distingue comunque le due direzioni.
+    const arrivals = destination.split(',');
+
+    /** @type {Record<string, object>} */
+    const byLeg = {};
+
+    for (const origin of origins) {
+      for (const arrival of arrivals) {
+        if (origin === arrival) continue;
+
+        const key = `${this.seed}|oneway|${origin}>${arrival}|${date}`;
+        const noise = hash01(key);
+        if (noise < this.failureRate) continue;
+
+        const base = (BASE_PRICES[arrival] ?? BASE_PRICES[origin] ?? DEFAULT_BASE_PRICE) / 2;
+        const spread = base * 0.35;
+        const price = Math.round(base - spread / 2 + noise * spread);
+        const outbound = fakeItinerary(origin, arrival, date, key);
+
+        byLeg[`${origin}>${arrival}`] = {
+          price,
+          airlines: outbound.airlines,
+          stops: outbound.stops,
+          durationMinutes: outbound.durationMinutes,
+          outbound,
+          origin,
+          destination: arrival,
+        };
+      }
+    }
+
+    return { byLeg };
   }
 }
 

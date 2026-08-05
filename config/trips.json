@@ -65,13 +65,13 @@
         }
       ],
       "sampling": {
-        "_comment": "Ricerche per run = mete x date campionate x durate. 1 meta x 4 partenze (12,13,14,15/9, stride 1) x 2 durate (14,15gg) = 8 ricerche.",
+        "_comment": "Ricerche per run = volo A/R (mete x date campionate x durate) + open-jaw (una chiamata one-way per data di andata distinta + una per data di ritorno distinta, indipendenti dalle combinazioni). 1 meta x 4 partenze x 2 durate = 8 per l'A/R; 4 date di andata + fino a 5 di ritorno = 9 per l'open-jaw. Totale ~17, tetto a 25 per margine.",
         "departureStrideDays": 1,
         "durationsToTest": [
           14,
           15
         ],
-        "maxApiCallsPerRun": 10,
+        "maxApiCallsPerRun": 25,
         "concurrency": 3
       },
       "notify": {

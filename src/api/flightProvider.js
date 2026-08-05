@@ -115,6 +115,17 @@ export class FlightProvider {
   }
 
   /**
+   * True when the provider can price a single leg (one-way) on its own. The
+   * engine uses this to decide whether open-jaw combinations (depart from one
+   * airport, return to a different one) can be evaluated at all — a provider
+   * that only prices symmetric round trips cannot support them.
+   * @returns {boolean}
+   */
+  get supportsOneWay() {
+    return false;
+  }
+
+  /**
    * Cheapest round trip for the given request, or `null` when the provider
    * returned no usable itinerary (a normal outcome, not an error).
    * @param {SearchRequest} _request
@@ -123,6 +134,21 @@ export class FlightProvider {
   // eslint-disable-next-line no-unused-vars
   async searchRoundTrip(_request) {
     throw new Error(`${this.name}: searchRoundTrip() not implemented`);
+  }
+
+  /**
+   * Cheapest one-way fare(s) for a single travel date. `origins` and
+   * `destination` may each name more than one airport (comma-joined by the
+   * provider as needed) — the response is grouped **per (origin, destination)
+   * pair**, not per side, because with both ends multi-airport the same
+   * response mixes every combination.
+   *
+   * @param {{ origins: string[], destination: string, date: string, currency: string, adults: number }} _request
+   * @returns {Promise<{ byLeg: Record<string, { price: number, airlines: string[], stops: number|null, durationMinutes: number|null, outbound: ItineraryDetails, origin: string, destination: string }> }>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async searchOneWay(_request) {
+    throw new Error(`${this.name}: searchOneWay() not implemented`);
   }
 }
 

@@ -56,6 +56,11 @@ class SerpApiProvider extends FlightProvider {
     return true;
   }
 
+  /** Un volo one-way per tratta, base per confrontare andata e ritorno separati. */
+  get supportsOneWay() {
+    return true;
+  }
+
   /**
    * @param {import('./flightProvider.js').SearchRequest} request
    * @returns {Promise<import('./flightProvider.js').FlightQuote|null>}
@@ -151,6 +156,64 @@ class SerpApiProvider extends FlightProvider {
       provider: this.name,
     };
   }
+
+  /**
+   * Prezzo one-way per una singola data. `origins`/`destination` accettano
+   * entrambi liste separate da virgola (Google Flights le mescola in
+   * un'unica risposta), quindi il risultato è raggruppato per *coppia*
+   * partenza→arrivo, non per un solo lato: è l'unico modo di distinguere
+   * "andata da Bergamo" da "ritorno su Bergamo" quando entrambi i lati della
+   * richiesta hanno più aeroporti.
+   *
+   * Usato per le combinazioni open-jaw (andata e ritorno da aeroporti
+   * diversi): il prezzo A/R di `searchRoundTrip` non si presta, perché lega
+   * per forza andata e ritorno allo stesso aeroporto.
+   *
+   * @param {{ origins: string[], destination: string, date: string, currency: string, adults: number }} request
+   * @returns {Promise<{ byLeg: Record<string, { price: number, airlines: string[], stops: number|null, durationMinutes: number|null, outbound: import('./flightProvider.js').ItineraryDetails, origin: string, destination: string }> }>}
+   */
+  async searchOneWay(request) {
+    const { origins, destination, date, currency, adults } = request;
+
+    const params = new URLSearchParams({
+      engine: 'google_flights',
+      api_key: this.apiKey,
+      departure_id: origins.join(','),
+      arrival_id: destination,
+      outbound_date: date,
+      currency,
+      adults: String(adults),
+      type: '2', // 2 = one-way
+      travel_class: '1',
+      hl: this.hl,
+      gl: this.gl,
+    });
+
+    const payload = await fetchJson(`${ENDPOINT}?${params.toString()}`, {
+      provider: this.name,
+      timeoutMs: this.timeoutMs,
+    });
+
+    if (payload.error) {
+      const message = String(payload.error);
+      const lower = message.toLowerCase();
+
+      if (QUOTA_MARKERS.some((marker) => lower.includes(marker))) {
+        throw new QuotaExceededError(`serpapi: quota esaurita. ${message}`, { provider: this.name });
+      }
+      if (EMPTY_RESULT_MARKERS.some((marker) => lower.includes(marker))) {
+        return { byLeg: {} };
+      }
+      throw new ProviderError(`serpapi: ${message}`, { provider: this.name });
+    }
+
+    const itineraries = [
+      ...(Array.isArray(payload.best_flights) ? payload.best_flights : []),
+      ...(Array.isArray(payload.other_flights) ? payload.other_flights : []),
+    ];
+
+    return { byLeg: cheapestByLeg(itineraries) };
+  }
 }
 
 /**
@@ -206,35 +269,70 @@ function describeItinerary(itinerary) {
  * @returns {Record<string, { price: number, airlines: string[], stops: number|null, bookingUrl: string|null }>}
  */
 function cheapestByOrigin(itineraries, outboundDate, returnDate, destination) {
+  const byLeg = cheapestByLeg(itineraries);
+
   /** @type {Record<string, any>} */
   const byOrigin = {};
+  for (const entry of Object.values(byLeg)) {
+    if (entry.destination !== destination) continue;
+
+    byOrigin[entry.origin] = {
+      price: entry.price,
+      airlines: entry.airlines,
+      stops: entry.stops,
+      durationMinutes: entry.durationMinutes,
+      outbound: entry.outbound,
+      // Il link globale della risposta punta alla ricerca multi-aeroporto: per
+      // un aeroporto specifico serve una query mirata, altrimenti l'utente
+      // riapre la stessa ricerca e non ritrova l'offerta annunciata.
+      bookingUrl: buildGoogleFlightsFallbackUrl(entry.origin, destination, outboundDate, returnDate),
+    };
+  }
+
+  return byOrigin;
+}
+
+/**
+ * Cheapest itinerary per (partenza, arrivo) — non solo per un lato. Con
+ * `departure_id`/`arrival_id` che accettano entrambi liste separate da
+ * virgola, la risposta mischia ogni combinazione: raggruppare per coppia è
+ * l'unico modo di recuperarle tutte invece di vedere solo la più economica in
+ * assoluto.
+ *
+ * Stesso caveat di sempre: Google Flights tronca la lista dei risultati, una
+ * coppia con prezzi molto sopra il vincitore può non comparire. Assente =
+ * "fuori dai risultati restituiti", mai "nessun volo".
+ *
+ * @returns {Record<string, { price: number, airlines: string[], stops: number|null, durationMinutes: number|null, outbound: object, origin: string, destination: string }>}
+ */
+function cheapestByLeg(itineraries) {
+  /** @type {Record<string, any>} */
+  const byLeg = {};
 
   for (const itinerary of itineraries) {
     const price = Number(itinerary?.price);
     if (!Number.isFinite(price) || price <= 0) continue;
 
-    const legs = Array.isArray(itinerary.flights) ? itinerary.flights : [];
-    const airport = legs[0]?.departure_airport?.id;
-    if (!airport) continue;
-
-    if (byOrigin[airport] && byOrigin[airport].price <= price) continue;
-
     const details = describeItinerary(itinerary);
+    const origin = details.departureAirport;
+    const destination = details.arrivalAirport;
+    if (!origin || !destination) continue;
 
-    byOrigin[airport] = {
+    const key = `${origin}>${destination}`;
+    if (byLeg[key] && byLeg[key].price <= price) continue;
+
+    byLeg[key] = {
       price,
       airlines: details.airlines,
       stops: details.stops,
       durationMinutes: details.durationMinutes,
       outbound: details,
-      // Il link globale della risposta punta alla ricerca multi-aeroporto: per
-      // un aeroporto specifico serve una query mirata, altrimenti l'utente
-      // riapre la stessa ricerca e non ritrova l'offerta annunciata.
-      bookingUrl: buildGoogleFlightsFallbackUrl(airport, destination, outboundDate, returnDate),
+      origin,
+      destination,
     };
   }
 
-  return byOrigin;
+  return byLeg;
 }
 
 /** Lowest positive numeric price across the returned itineraries. */

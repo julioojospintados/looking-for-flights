@@ -404,6 +404,35 @@ export function renderMessage(trip, delta) {
       ]);
     }
 
+    // Combinazioni open-jaw: andata e ritorno da aeroporti diversi. A
+    // differenza del blocco sopra (volo A/R, ritorno senza orario per
+    // risparmiare quota), qui ogni tratta è una ricerca one-way a sé, quindi
+    // orari e scali sono sempre completi su entrambe le tratte.
+    const combos = result.openJawCombos ?? [];
+    if (combos.length > 0) {
+      push('<i>🔀 Andata/ritorno da aeroporti diversi</i>', '🔀 Andata/ritorno da aeroporti diversi');
+      for (const combo of combos) {
+        const sameAirport = combo.originOut.id === combo.originBack.id;
+        push(
+          `<b>${escapeHtml(combo.originOut.label)} → ${escapeHtml(combo.originBack.label)}</b>` +
+            (sameAirport ? ' <i>(A/R classico)</i>' : ' <i>(open-jaw)</i>') +
+            ` · <b>${formatPrice(combo.price, cur)}</b>`,
+          `${combo.originOut.label} → ${combo.originBack.label}` +
+            (sameAirport ? ' (A/R classico)' : ' (open-jaw)') +
+            ` · ${formatPrice(combo.price, cur)}`,
+        );
+        push(
+          `   ✈️ ${escapeHtml(legSummary(combo.outbound))}`,
+          `   ✈️ ${legSummary(combo.outbound)}`,
+        );
+        push(
+          `   🔙 ${escapeHtml(legSummary(combo.returnFlight))}`,
+          `   🔙 ${legSummary(combo.returnFlight)}`,
+        );
+      }
+      push('', '');
+    }
+
     const drop = delta.drops.find((item) => item.id === result.id);
     if (drop) {
       push(
@@ -518,6 +547,38 @@ function flightRows(result, trip, cur) {
   ]);
 
   return rows;
+}
+
+/**
+ * Una tratta one-way in una riga: "TRN 14/09 13:20 → CMB 15/09 05:15 · 15h55m
+ * · scalo a DXB 5h16m (notturno)". A differenza del volo A/R sopra, qui
+ * orario e scalo sono sempre noti su entrambe le tratte — è una ricerca
+ * one-way a sé, non la metà di un A/R di cui si conosce solo la data.
+ * @param {import('./api/flightProvider.js').ItineraryDetails|null} leg
+ */
+function legSummary(leg) {
+  if (!leg?.departureTime) return 'n/d';
+
+  const from = `${airportLabel(leg.departureAirport)} ${formatDateTime(leg.departureTime)}`;
+  const to = `${airportLabel(leg.arrivalAirport)} ${formatDateTime(leg.arrivalTime)}`;
+
+  const layovers = leg.layovers ?? [];
+  const stopsLabel =
+    leg.stops === 0
+      ? 'diretto'
+      : layovers.length > 0
+        ? layovers
+            .map(
+              (layover) =>
+                `scalo a ${airportLabel(layover.airport)} ${formatDuration(layover.durationMinutes)}` +
+                (layover.overnight ? ' (notturno)' : ''),
+            )
+            .join(', ')
+        : Number.isFinite(leg.stops)
+          ? `${leg.stops} scalo${leg.stops > 1 ? 'i' : ''}`
+          : null;
+
+  return `${from} → ${to} · ${formatDuration(leg.durationMinutes)}` + (stopsLabel ? ` · ${stopsLabel}` : '');
 }
 
 function stripTags(value) {
