@@ -4,12 +4,13 @@
     "provider": "serpapi",
     "currency": "EUR",
     "adults": 1,
-    "_comment_apiQuota": "Tetto che attraversa i run, non il singolo run (quello è sampling.maxApiCallsPerRun). monthlySearches = il piano SerpApi. reserveForOnDemand = quota che il cron NON può toccare, riservata a /cerca: il cron può saltare un giro senza che nessuno se ne accorga, un /cerca è una persona che aspetta. Finestra mobile di 30 giorni perché la data di rinnovo del piano non è nota al programma.",
+    "_comment_apiQuota": "Tetto che attraversa i run, non il singolo run (quello è sampling.maxApiCallsPerRun). monthlySearches = il piano SerpApi. reserveForOnDemand = quota che il cron NON può toccare, riservata a /cerca: il cron può saltare un giro senza che nessuno se ne accorga, un /cerca è una persona che aspetta. Finestra mobile di 30 giorni perché la data di rinnovo del piano non è nota al programma. warnAt = soglia di avviso: alla prima esecuzione che fa salire l'uso totale nella finestra a questo valore o oltre, parte una notifica separata (non blocca nulla, avvisa e basta). Assente/0 = nessun avviso.",
     "_comment_apiQuota_conti": "Con 8 ricerche/run (Sri Lanka, finestra ristretta) e cron lun+gio, una finestra di 30 giorni contiene al massimo 9 esecuzioni programmate = 72 ricerche, coperte dal tetto 250-100=150. Le 100 di riserva valgono 12 /cerca.",
     "apiQuota": {
       "monthlySearches": 250,
       "reserveForOnDemand": 100,
-      "windowDays": 30
+      "windowDays": 30,
+      "warnAt": 200
     },
     "notify": {
       "priceDropThreshold": 15,

@@ -819,6 +819,21 @@ async function main() {
     await sendNotification({ html: testo, text: stripTags(testo) }, { channels });
   }
 
+  // --- avviso di avvicinamento alla quota ----------------------------------
+  // Confronto prima/dopo il run per notificare solo al momento in cui la
+  // soglia viene superata, non a ogni run successivo finché resta sopra.
+  const warnAt = Number(quotaConfig.warnAt);
+  if (Number.isFinite(warnAt) && warnAt > 0 && !args.dryRun) {
+    const usedNow = usageInWindow(nextState.quota, today(), quotaConfig.windowDays);
+    if (usedSoFar < warnAt && usedNow >= warnAt) {
+      const testo =
+        `⚠️ <b>Quota API in avvicinamento al tetto</b>\n` +
+        `${usedNow}/${quotaConfig.monthlySearches ?? '?'} ricerche usate negli ultimi ` +
+        `${quotaConfig.windowDays ?? 30} giorni (soglia di avviso: ${warnAt}).`;
+      await sendNotification({ html: testo, text: stripTags(testo) }, { channels });
+    }
+  }
+
   // --- write state --------------------------------------------------------
   if (stateChanged && !args.dryRun) {
     nextState.lastUpdate = new Date().toISOString();

@@ -111,6 +111,20 @@ class SerpApiProvider extends FlightProvider {
 
     const outbound = describeItinerary(cheapest);
 
+    // Diagnostica temporanea: se il prezzo c'è ma orari/scali no, la causa è
+    // quasi certamente nella forma di `cheapest.flights`, non nel prezzo.
+    // Stampa solo in quel caso per non riempire i log di rumore nel caso comune.
+    if (!outbound.departureTime) {
+      console.warn(
+        `   🩺 [debug] "${destination}": prezzo trovato ma outbound senza orari. ` +
+          `flights.length=${Array.isArray(cheapest?.flights) ? cheapest.flights.length : 'n/a'}, ` +
+          `chiavi itinerario: ${Object.keys(cheapest ?? {}).join(', ')}` +
+          (Array.isArray(cheapest?.flights) && cheapest.flights[0]
+            ? `, chiavi flights[0]: ${Object.keys(cheapest.flights[0]).join(', ')}`
+            : ''),
+      );
+    }
+
     return {
       price: cheapest.price,
       currency,
