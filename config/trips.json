@@ -4,61 +4,86 @@
     "provider": "serpapi",
     "currency": "EUR",
     "adults": 1,
+    "_comment_apiQuota": "Tetto che attraversa i run, non il singolo run (quello è sampling.maxApiCallsPerRun). monthlySearches = il piano SerpApi. reserveForOnDemand = quota che il cron NON può toccare, riservata a /cerca: il cron può saltare un giro senza che nessuno se ne accorga, un /cerca è una persona che aspetta. Finestra mobile di 30 giorni perché la data di rinnovo del piano non è nota al programma.",
+    "_comment_apiQuota_conti": "Con 8 ricerche/run (Sri Lanka, finestra ristretta) e cron lun+gio, una finestra di 30 giorni contiene al massimo 9 esecuzioni programmate = 72 ricerche, coperte dal tetto 250-100=150. Le 100 di riserva valgono 12 /cerca.",
+    "apiQuota": {
+      "monthlySearches": 250,
+      "reserveForOnDemand": 100,
+      "windowDays": 30
+    },
     "notify": {
       "priceDropThreshold": 15,
-      "channels": ["telegram", "slack"]
+      "channels": [
+        "telegram",
+        "slack"
+      ]
     }
   },
   "trips": [
     {
       "id": "asia-autunno-2026",
-      "_comment_id": "L'id resta 'asia-autunno-2026' (nome storico, non più accurato) per non dover rinominare il secret BUDGET_ASIA_AUTUNNO_2026 su GitHub. Solo il campo 'name' qui sotto compare nelle notifiche.",
+      "_comment_id": "L'id resta 'asia-autunno-2026' (nome storico) per non dover rinominare il secret BUDGET_ASIA_AUTUNNO_2026 su GitHub. Solo 'name' compare nelle notifiche.",
       "name": "Sri Lanka Settembre 2026",
       "enabled": true,
       "_comment_budget": "Il budget è privato: non va qui. Viene letto a runtime dalla env var BUDGET_ASIA_AUTUNNO_2026 (GitHub Secret in CI, .env in locale) — vedi .env.example. Senza quella variabile il monitor si rifiuta di partire.",
       "currency": "EUR",
       "adults": 1,
-
-      "_comment_departureWindow": "Partenza dal 12 settembre; 'to' è il 15 perché con durata max 15 notti (12+15=27, 15+15=30) il rientro resta comunque dentro settembre, come richiesto. Nessun giorno festivo italiano cade in questa finestra (tra Ferragosto e Ognissanti), quindi 'giorni festivi esclusi' è già soddisfatto senza logica dedicata.",
+      "_comment_departureWindow": "Partenza dal 12 al 15 settembre; con durata max 15 notti il rientro piu' tardivo e' il 30/9 (15+15), quindi il viaggio resta sempre dentro settembre.",
       "departureWindow": {
         "from": "2026-09-12",
         "to": "2026-09-15"
       },
-
+      "_comment_returnBy": "Ridondante con la finestra di partenza qui sopra (che gia' garantisce rientro entro il 30/9), ma esplicita il vincolo 'solo settembre' come rete di sicurezza indipendente.",
+      "returnBy": "2026-09-30",
       "tripDuration": {
         "min": 14,
         "max": 15,
         "standard": 15
       },
-
-      "origins": ["MXP", "BGY", "TRN"],
-
+      "origins": [
+        "MXP",
+        "BGY",
+        "TRN"
+      ],
       "_comment_originGroups": "La classifica usa il prezzo più basso in assoluto, che è quasi sempre da Milano. Questi gruppi fanno sì che ogni notifica mostri COMUNQUE il miglior prezzo da Torino accanto a quello da Malpensa/Orio, per decidere se lo sconto vale il viaggio fino a Milano. Non costano ricerche extra: i prezzi dei singoli aeroporti sono già dentro la stessa risposta del provider.",
       "originGroups": [
-        { "id": "torino", "label": "Torino", "airports": ["TRN"] },
-        { "id": "milano", "label": "Milano", "airports": ["MXP", "BGY"] }
+        {
+          "id": "torino",
+          "label": "Torino",
+          "airports": [
+            "TRN"
+          ]
+        },
+        {
+          "id": "milano",
+          "label": "Milano",
+          "airports": [
+            "MXP",
+            "BGY"
+          ]
+        }
       ],
-
       "sampling": {
-        "_comment": "Il numero di chiamate API per run = candidati x date di partenza campionate x durate testate. Finestra ridotta a 4 giorni (12-15 settembre): stride 1 copre ogni giorno senza sforare il budget (1 candidato x 4 partenze x 2 durate = 8 chiamate).",
+        "_comment": "Ricerche per run = mete x date campionate x durate. 1 meta x 4 partenze (12,13,14,15/9, stride 1) x 2 durate (14,15gg) = 8 ricerche.",
         "departureStrideDays": 1,
-        "durationsToTest": [14, 15],
-        "maxApiCallsPerRun": 20,
+        "durationsToTest": [
+          14,
+          15
+        ],
+        "maxApiCallsPerRun": 10,
         "concurrency": 3
       },
-
       "notify": {
         "priceDropThreshold": 15
       },
-
       "candidates": [
         {
           "id": "sri-lanka",
           "name": "Sri Lanka",
           "hub": "CMB",
-          "groundCostPerDay": 30,
-          "fixedExtra": 0,
-          "notes": "Stima groundCostPerDay da verificare (placeholder in linea con altre mete del sud-est asiatico). Fine settembre: costa est (Trincomalee/Passekudah) e triangolo culturale ancora favorevoli, ma piogge in aumento; costa ovest/sud (Colombo, Galle, Mirissa) ancora nel monsone sud-ovest. fixedExtra non include l'ETA (visto elettronico), da calcolare a parte."
+          "groundCostPerDay": 25,
+          "fixedExtra": 40,
+          "notes": null
         }
       ]
     }

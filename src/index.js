@@ -24,7 +24,24 @@ import { fileURLToPath } from 'node:url';
 
 import { createFlightProvider, ProviderConfigError } from './api/flightProvider.js';
 import { runTrip } from './engine.js';
+import { airportCity, airportLabel, airportListLabel } from './utils/airports.js';
+import {
+  formatDateTime,
+  formatDay,
+  formatDuration,
+  formatPrice,
+  renderTable,
+  truncate,
+} from './utils/format.js';
 import { availableChannels, escapeHtml, sendNotification } from './utils/notifier.js';
+import {
+  emptyQuotaState,
+  nextReleaseDate,
+  recordUsage,
+  remainingAllowance,
+  today,
+  usageInWindow,
+} from './utils/quota.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STATE_VERSION = 1;
@@ -149,14 +166,14 @@ async function loadState(statePath) {
   try {
     const parsed = JSON.parse(await readFile(statePath, 'utf8'));
     if (!parsed || typeof parsed !== 'object' || !parsed.trips) {
-      return { version: STATE_VERSION, lastUpdate: null, trips: {} };
+      return { version: STATE_VERSION, lastUpdate: null, trips: {}, quota: emptyQuotaState() };
     }
-    return parsed;
+    return { quota: emptyQuotaState(), ...parsed };
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.warn(`⚠️  Stato precedente illeggibile (${error.message}). Tratto come prima esecuzione.`);
     }
-    return { version: STATE_VERSION, lastUpdate: null, trips: {} };
+    return { version: STATE_VERSION, lastUpdate: null, trips: {}, quota: emptyQuotaState() };
   }
 }
 
@@ -269,6 +286,19 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 
 /**
  * Render both the Telegram (HTML) and Slack (plain text) payloads.
+ *
+ * Forma: **tabelle monospaziate**, non elenchi puntati. Un elenco di sei righe
+ * per destinazione, moltiplicato per cinque destinazioni, obbliga a rileggere
+ * ogni riga per capire di cosa parla; incolonnare gli stessi numeri li rende
+ * confrontabili con lo sguardo — che è l'unica cosa che si fa davvero con una
+ * notifica sul telefono.
+ *
+ * Vincolo tecnico che detta il resto: Telegram non ha un markup di tabella. Le
+ * tabelle sono blocchi `<pre>` allineati a spazi, e un `<pre>` **non va a
+ * capo** — scorre in orizzontale. Ogni riga sta perciò dentro
+ * `MAX_TABLE_WIDTH`, e `splitMessage` (notifier.js) sa richiudere e riaprire i
+ * blocchi quando un messaggio lungo va spezzato.
+ *
  * @param {object} trip     Engine trip result.
  * @param {object} delta    Output of computeDelta.
  * @returns {{ html: string, text: string }}
@@ -283,18 +313,19 @@ export function renderMessage(trip, delta) {
     textLines.push(text ?? stripTags(html));
   };
 
+  /** Una tabella: `<pre>` su Telegram, blocco di codice su Slack. */
+  const pushTable = (rows) => {
+    const table = renderTable(rows);
+    if (!table) return;
+    push(`<pre>${escapeHtml(table)}</pre>`, '```\n' + table + '\n```');
+  };
+
+  push(`✈️ <b>${escapeHtml(trip.tripName)}</b>`, `✈️ ${trip.tripName}`);
   push(
-    `✈️ <b>${escapeHtml(trip.tripName)}</b>`,
-    `✈️ ${trip.tripName}`,
+    `🗓 ${formatDay(trip.departureWindow.from)} → ${formatDay(trip.departureWindow.to)} · ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
+    `🗓 ${formatDay(trip.departureWindow.from)} → ${formatDay(trip.departureWindow.to)} | ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
   );
-  push(
-    `🗓 ${trip.departureWindow.from} → ${trip.departureWindow.to} · ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
-    `🗓 ${trip.departureWindow.from} → ${trip.departureWindow.to} | ${trip.tripDuration.min}-${trip.tripDuration.max} giorni`,
-  );
-  push(
-    `🛫 Partenze da: ${trip.origins.join(', ')}`,
-    `🛫 Partenze da: ${trip.origins.join(', ')}`,
-  );
+  push(`🛫 Da: ${airportListLabel(trip.origins)}`, `🛫 Da: ${airportListLabel(trip.origins)}`);
   push('', '');
 
   // Dichiarato in cima e non a piè di pagina: chi legge deve sapere *prima*
@@ -307,41 +338,43 @@ export function renderMessage(trip, delta) {
     push('', '');
   }
 
-  // Why you are receiving this message.
-  push('<b>Perché ricevi questa notifica</b>', 'Perché ricevi questa notifica');
+  // Una riga sola, non un blocco con titolo: il motivo per cui il messaggio è
+  // arrivato è contesto, non contenuto, e non deve competere con i numeri.
   for (const reason of delta.reasons) {
-    push(`• ${escapeHtml(reason.text)}`, `• ${reason.text}`);
+    push(`ℹ️ <i>${escapeHtml(reason.text)}</i>`, `ℹ️ ${reason.text}`);
   }
   push('', '');
-
-  // Ranking. Once several destinations can all afford the full trip they tie on
-  // days, so the tie-break (total cost) is named in the header to avoid an
-  // apparently arbitrary order.
-  const criterio = trip.budgetMissing
-    ? 'prezzo del volo A/R'
-    : 'giorni sostenibili, poi costo totale';
-  push(`<b>🏆 Classifica</b> — ${criterio}`, `🏆 Classifica — ${criterio}`);
 
   const priced = trip.results.filter((result) => result.status === 'ok');
 
   if (priced.length === 0) {
     push('Nessun volo trovato in questa esecuzione.', 'Nessun volo trovato in questa esecuzione.');
-  } else {
-    // Tabella riassuntiva: vista d'insieme rapida prima del dettaglio riga per riga
-    // che segue. Rango in cifre (non medaglie) perché nei font monospace le emoji
-    // hanno larghezza variabile e disallineano le colonne.
-    const headers = ['#', 'Destinazione', 'Prezzo', 'Giorni', 'Totale'];
-    const rows = priced.map((result) => [
-      `${result.rank}`,
-      `${result.name} (${result.hub})`,
-      `${result.price} ${cur}`,
-      Number.isFinite(result.maxDays) ? `${result.maxDays}/${result.maxTripDays}` : '-',
-      Number.isFinite(result.maxDays) ? `${result.totalCostStandard} ${cur}` : '-',
-    ]);
-    const table = renderTable(headers, rows);
-    push(`<pre>${escapeHtml(table)}</pre>`, '```\n' + table + '\n```');
   }
 
+  // --- Riepilogo: tutte le mete a confronto, una riga ciascuna --------------
+  if (priced.length > 0) {
+    const criterio = trip.budgetMissing ? 'per prezzo' : 'per giorni, poi costo';
+    push(`<b>🏆 Classifica</b> <i>(${criterio})</i>`, `🏆 Classifica (${criterio})`);
+
+    const header = trip.budgetMissing
+      ? ['#', 'Destinazione', 'Volo', 'Da']
+      : ['#', 'Destinazione', 'Volo', 'Giorni'];
+
+    pushTable([
+      header,
+      ...priced.map((result) => [
+        String(result.rank),
+        truncate(result.name, 17),
+        formatPrice(result.price, cur),
+        trip.budgetMissing
+          ? airportCity(result.origin)
+          : `${result.maxDays}/${result.maxTripDays}`,
+      ]),
+    ]);
+    push('', '');
+  }
+
+  // --- Dettaglio per destinazione ------------------------------------------
   for (const result of priced) {
     const medal = MEDALS[result.rank - 1] ?? `${result.rank}.`;
     // `feasible === null` = non valutabile (nessun budget), diverso da `false`
@@ -349,75 +382,40 @@ export function renderMessage(trip, delta) {
     const feasibility = result.feasible === false ? ' ⚠️ sotto la durata minima' : '';
 
     push(
-      `${medal} <b>${escapeHtml(result.name)}</b> (${result.hub})${feasibility}`,
-      `${medal} ${result.name} (${result.hub})${feasibility}`,
+      `${medal} <b>${escapeHtml(result.name)}</b> · ${escapeHtml(airportLabel(result.hub))}${feasibility}`,
+      `${medal} ${result.name} · ${airportLabel(result.hub)}${feasibility}`,
     );
-    push(
-      `   🛬 Volo A/R: <b>${result.price} ${cur}</b> da ${result.origin} · ${result.outboundDate} → ${result.returnDate}`,
-      `   🛬 Volo A/R: ${result.price} ${cur} da ${result.origin} | ${result.outboundDate} → ${result.returnDate}`,
-    );
-    if (Number.isFinite(result.maxDays)) {
-      // With the trip length capped, "21/21" is the common case; what separates
-      // destinations is the leftover budget, so it goes on the same line.
-      const giorni = result.budgetCoversFullTrip
-        ? `${result.maxDays}/${result.maxTripDays} gg pieni`
-        : `${result.maxDays}/${result.maxTripDays} gg (budget insufficiente per ${result.maxTripDays})`;
 
-      push(
-        `   📅 <b>${giorni}</b> · 💸 ${result.groundCostPerDay} ${cur}/gg` +
-          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
-        `   📅 ${giorni} | 💸 ${result.groundCostPerDay} ${cur}/gg` +
-          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
-      );
-      push(
-        `   🧮 Totale ${result.standardDays} gg: <b>${result.totalCostStandard} ${cur}</b>`,
-        `   🧮 Totale ${result.standardDays} gg: ${result.totalCostStandard} ${cur}`,
-      );
-    } else {
-      // Il costo a terra resta un dato utile anche senza budget: dice quanto
-      // pesa ogni giorno in più, che è metà della decisione.
-      push(
-        `   💸 ${result.groundCostPerDay} ${cur}/gg a terra` +
-          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
-        `   💸 ${result.groundCostPerDay} ${cur}/gg a terra` +
-          (result.fixedExtra > 0 ? ` + ${result.fixedExtra} ${cur} extra` : ''),
-      );
-    }
+    pushTable(flightRows(result, trip, cur));
 
-    // Dettaglio per aeroporto di partenza. Il prezzo migliore in assoluto è
-    // quasi sempre da Milano: senza questo blocco, chi parte da Torino non
-    // saprebbe mai quanto gli costa davvero, né quando conviene il treno.
-    for (const group of result.originBreakdown ?? []) {
-      if (group.status !== 'ok') {
-        push(
-          `   🛫 ${escapeHtml(group.label)}: <i>non tra i risultati</i>`,
-          `   🛫 ${group.label}: non tra i risultati`,
-        );
-        continue;
-      }
-
-      const extra = group.isBest ? '✅ il migliore' : `+${group.extraVsBest} ${cur}`;
-      const line =
-        `   🛫 ${group.label} (${group.origin}): <b>${group.price} ${cur}</b> · ${extra} · ` +
-        `${group.outboundDate} → ${group.returnDate}`;
-
-      push(
-        group.bookingUrl ? `${line} · <a href="${escapeHtml(group.bookingUrl)}">apri</a>` : line,
-        stripTags(line) + (group.bookingUrl ? ` | ${group.bookingUrl}` : ''),
-      );
+    // Confronto fra aeroporti di partenza: la domanda vera non è "qual è il
+    // volo più economico" ma "quanto mi costa partire da casa mia".
+    const groups = (result.originBreakdown ?? []).filter((group) => group.status === 'ok');
+    if (groups.length > 1) {
+      push('<i>Partenze a confronto</i>', 'Partenze a confronto');
+      pushTable([
+        ['Da', 'Volo', 'Diff.', 'Durata'],
+        ...groups.map((group) => [
+          truncate(group.label, 10),
+          formatPrice(group.price, cur),
+          group.isBest ? '—' : `+${group.extraVsBest}`,
+          formatDuration(group.outbound?.durationMinutes ?? group.durationMinutes),
+        ]),
+      ]);
     }
 
     const drop = delta.drops.find((item) => item.id === result.id);
     if (drop) {
       push(
-        `   📉 <b>-${drop.drop} ${cur}</b> (era ${drop.from} ${cur})`,
-        `   📉 -${drop.drop} ${cur} (era ${drop.from} ${cur})`,
+        `📉 <b>-${formatPrice(drop.drop, cur)}</b> (era ${formatPrice(drop.from, cur)})`,
+        `📉 -${formatPrice(drop.drop, cur)} (era ${formatPrice(drop.from, cur)})`,
       );
     }
-    // Con il dettaglio per aeroporto ogni riga ha già il suo link, e quello
-    // "generale" ripeterebbe la riga vincente.
-    if (result.bookingUrl && (result.originBreakdown ?? []).length === 0) {
-      push(`   🔗 <a href="${escapeHtml(result.bookingUrl)}">Apri su Google Flights</a>`, `   🔗 ${result.bookingUrl}`);
+    if (result.bookingUrl) {
+      push(
+        `🔗 <a href="${escapeHtml(result.bookingUrl)}">Apri su Google Flights</a>`,
+        `🔗 ${result.bookingUrl}`,
+      );
     }
     push('', '');
   }
@@ -434,8 +432,8 @@ export function renderMessage(trip, delta) {
       }[result.status] ?? result.status;
 
       push(
-        `• ${escapeHtml(result.name)} (${result.hub}): ${label}`,
-        `• ${result.name} (${result.hub}): ${label}`,
+        `• ${escapeHtml(result.name)} (${escapeHtml(airportLabel(result.hub))}): ${label}`,
+        `• ${result.name} (${airportLabel(result.hub)}): ${label}`,
       );
     }
     push('', '');
@@ -450,18 +448,76 @@ export function renderMessage(trip, delta) {
 }
 
 /**
- * Format rows as a left-aligned, pipe-separated monospace table.
- * @param {string[]} headers
- * @param {string[][]} rows
- * @returns {string}
+ * Le righe della tabella di dettaglio di una destinazione.
+ *
+ * Ogni riga è opzionale: un provider che non espone orari o scali produce una
+ * tabella più corta, non una tabella piena di "n/d". Mostrare il nulla in modo
+ * ordinato è peggio che non mostrarlo.
  */
-function renderTable(headers, rows) {
-  const widths = headers.map((header, i) =>
-    Math.max(header.length, ...rows.map((row) => row[i].length)),
-  );
-  const formatRow = (cells) => cells.map((cell, i) => cell.padEnd(widths[i])).join(' | ');
-  const separator = widths.map((w) => '-'.repeat(w)).join('-+-');
-  return [formatRow(headers), separator, ...rows.map(formatRow)].join('\n');
+function flightRows(result, trip, cur) {
+  const rows = [['Volo A/R', formatPrice(result.price, cur)]];
+  const outbound = result.outbound ?? null;
+
+  if (outbound?.departureTime) {
+    rows.push([
+      'Partenza',
+      `${airportLabel(outbound.departureAirport ?? result.origin)} ${formatDateTime(outbound.departureTime)}`,
+    ]);
+  } else {
+    rows.push(['Partenza', `${airportLabel(result.origin)} ${formatDay(result.outboundDate)}`]);
+  }
+
+  if (outbound?.arrivalTime) {
+    rows.push([
+      'Arrivo',
+      `${airportLabel(outbound.arrivalAirport ?? result.hub)} ${formatDateTime(outbound.arrivalTime)}`,
+    ]);
+  }
+
+  const duration = outbound?.durationMinutes ?? result.durationMinutes;
+  const stops = outbound?.stops ?? result.stops;
+  if (Number.isFinite(duration) || Number.isFinite(stops)) {
+    const pieces = [];
+    if (Number.isFinite(duration)) pieces.push(formatDuration(duration));
+    if (Number.isFinite(stops)) pieces.push(stops === 0 ? 'diretto' : `${stops} scalo${stops > 1 ? 'i' : ''}`);
+    rows.push(['Durata', pieces.join(' · ')]);
+  }
+
+  for (const layover of outbound?.layovers ?? []) {
+    rows.push([
+      'Scalo',
+      [
+        airportLabel(layover.airport),
+        formatDuration(layover.durationMinutes),
+        layover.overnight ? 'notturno' : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    ]);
+  }
+
+  const airlines = outbound?.airlines ?? result.airlines ?? [];
+  if (airlines.length > 0) rows.push(['Compagnia', truncate(airlines.join(', '), 30)]);
+
+  // Del ritorno si conosce solo la data: i suoi orari costerebbero una seconda
+  // chiamata API per destinazione (vedi il commento in serpapi.js).
+  rows.push(['Ritorno', `${formatDay(result.returnDate)} · ${result.durationDays} giorni`]);
+
+  if (Number.isFinite(result.maxDays)) {
+    rows.push([
+      'Giorni',
+      `${result.maxDays}/${result.maxTripDays}${result.budgetCoversFullTrip ? ' pieni' : ' (budget)'}`,
+    ]);
+    rows.push(['Totale', `${formatPrice(result.totalCostStandard, cur)} · ${result.standardDays} gg`]);
+  }
+
+  rows.push([
+    'A terra',
+    `${formatPrice(result.groundCostPerDay, cur)}/gg` +
+      (result.fixedExtra > 0 ? ` + ${formatPrice(result.fixedExtra, cur)}` : ''),
+  ]);
+
+  return rows;
 }
 
 function stripTags(value) {
@@ -574,10 +630,32 @@ async function main() {
     return 0;
   }
 
-  const nextState = { version: STATE_VERSION, lastUpdate: state.lastUpdate, trips: { ...state.trips } };
+  const nextState = {
+    version: STATE_VERSION,
+    lastUpdate: state.lastUpdate,
+    trips: { ...state.trips },
+    quota: state.quota ?? emptyQuotaState(),
+  };
+
+  // Quanta quota API resta prima ancora di interrogare il provider. Il tetto
+  // per-run non bastava: limitava la singola esecuzione, non quante volte la
+  // si lancia.
+  const quotaConfig = config.defaults.apiQuota ?? {};
+  const mode = process.env.RUN_MODE === 'ondemand' || args.forceNotify ? 'ondemand' : 'scheduled';
+  const usedSoFar = usageInWindow(nextState.quota, today(), quotaConfig.windowDays);
+  const allowance = remainingAllowance(quotaConfig, usedSoFar, mode);
+
+  if (Number.isFinite(allowance.cap)) {
+    console.log(
+      `📊 Quota API: ${allowance.used}/${allowance.cap} usate (${mode}) · ` +
+        `${allowance.allowed} disponibili in questo run`,
+    );
+  }
   const summaryLines = ['## ✈️ Looking for Flights', ''];
   let stateChanged = false;
   let hadFailure = false;
+  /** Viaggi saltati per quota: vanno comunicati, non lasciati in silenzio. */
+  const quotaBlocked = [];
 
   for (const trip of trips) {
     console.log(`\n──── ${trip.name} (${trip.id}) ────`);
@@ -602,6 +680,36 @@ async function main() {
       trip.budgetTotal = null;
     }
 
+    // La quota residua vince sul tetto configurato: `maxApiCallsPerRun` dice
+    // quanto *vorremmo* spendere, l'allowance quanto *possiamo*. A zero il run
+    // non parte nemmeno — una ricerca che sappiamo essere rifiutata dall'API è
+    // solo un modo più lento di fallire.
+    if (allowance.exhausted) {
+      const ripresa = nextReleaseDate(nextState.quota, quotaConfig.windowDays);
+      const messaggio =
+        `Quota API esaurita: ${allowance.used}/${allowance.cap} ricerche negli ultimi ` +
+        `${quotaConfig.windowDays ?? 30} giorni` +
+        (mode === 'scheduled' && quotaConfig.reserveForOnDemand
+          ? ` (riserva di ${quotaConfig.reserveForOnDemand} tenuta per /cerca)`
+          : '') +
+        (ripresa ? `. Torna disponibile dal ${ripresa}.` : '.');
+
+      console.warn(`⏸️  [${trip.id}] ${messaggio}`);
+      summaryLines.push(`### ⏸️ ${trip.name}`, '', messaggio, '');
+      quotaBlocked.push(messaggio);
+      continue;
+    }
+
+    if (Number.isFinite(allowance.allowed)) {
+      trip.sampling = {
+        ...trip.sampling,
+        maxApiCallsPerRun: Math.min(
+          Number(trip.sampling?.maxApiCallsPerRun) || allowance.allowed,
+          allowance.allowed,
+        ),
+      };
+    }
+
     let tripResult;
     try {
       tripResult = await runTrip(trip, provider);
@@ -610,6 +718,22 @@ async function main() {
       console.error(`❌ [${trip.id}] Esecuzione fallita: ${error.message}`);
       summaryLines.push(`### ❌ ${trip.name}`, '', `Esecuzione fallita: \`${error.message}\``, '');
       continue;
+    }
+
+    // Registrato sempre, anche se poi la notifica non parte: le ricerche sono
+    // state consumate comunque, e uno stato che le dimentica riaprirebbe la
+    // porta allo sforamento che questo contatore esiste per impedire.
+    if (tripResult.apiCallsUsed > 0) {
+      nextState.quota = recordUsage(
+        nextState.quota,
+        today(),
+        tripResult.apiCallsUsed,
+        quotaConfig.windowDays,
+      );
+      allowance.allowed = Math.max(0, allowance.allowed - tripResult.apiCallsUsed);
+      allowance.used += tripResult.apiCallsUsed;
+      allowance.exhausted = allowance.allowed <= 0;
+      stateChanged = true;
     }
 
     const threshold = Number(trip.notify?.priceDropThreshold ?? 15);
@@ -685,6 +809,14 @@ async function main() {
       `Notifica inviata: **${delta.shouldNotify && !args.dryRun ? 'sì' : 'no'}** · Ricerche API: ${tripResult.apiCallsUsed}/${tripResult.apiCallsBudget}`,
       '',
     );
+  }
+
+  // --- quota esaurita: dirlo, non sparire ---------------------------------
+  // Un run che si ferma in silenzio è indistinguibile da "nessuna variazione
+  // di prezzo": è lo stesso equivoco che rendeva invisibili i fallimenti.
+  if (quotaBlocked.length > 0 && !args.dryRun) {
+    const testo = `⏸️ <b>Ricerca sospesa</b>\n${quotaBlocked.map((line) => escapeHtml(line)).join('\n')}`;
+    await sendNotification({ html: testo, text: stripTags(testo) }, { channels });
   }
 
   // --- write state --------------------------------------------------------

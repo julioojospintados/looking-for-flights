@@ -2,7 +2,7 @@
 
 Monitoraggio automatico dei prezzi dei voli con **classifica per giorni di viaggio sostenibili a budget fisso**.
 
-Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più economico verso ogni destinazione candidata, calcola quanti giorni potresti restare a terra con il budget residuo, ordina le destinazioni e ti scrive su Telegram **solo quando c'è davvero qualcosa da sapere** — oppure scrivi `/cerca` al bot per farla partire quando vuoi tu.
+Due volte a settimana una GitHub Action cerca il volo A/R più economico verso ogni destinazione candidata, calcola quanti giorni potresti restare a terra con il budget residuo, ordina le destinazioni e ti scrive su Telegram **solo quando c'è davvero qualcosa da sapere** — oppure scrivi `/cerca` al bot per farla partire quando vuoi tu.
 
 > **Architettura "Engine + Config"** — tutta la logica di dominio vive in [config/trips.json](config/trips.json). Per monitorare un viaggio completamente diverso (altre date, altro budget, altre destinazioni) non si tocca una riga di codice.
 
@@ -18,7 +18,9 @@ Due volte al giorno (mattina e sera) una GitHub Action cerca il volo A/R più ec
   - [Comandi del bot](#comandi-del-bot)
 - [Riferimento configurazione](#-riferimento-configurazione)
   - [Budget: privato anche a repo pubblico](#budget-privato-anche-a-repo-pubblico)
+  - [Scadenza sul rientro (returnBy)](#scadenza-sul-rientro-returnby)
   - [Prezzo per aeroporto di partenza (originGroups)](#prezzo-per-aeroporto-di-partenza-origingroups)
+  - [Formato della notifica](#formato-della-notifica)
 - [Consumo della quota API](#-consumo-della-quota-api-leggimi)
 - [Cambiare provider](#-cambiare-provider)
 - [Troubleshooting](#-troubleshooting)
@@ -76,10 +78,10 @@ Il sistema è volutamente silenzioso. Notifica **solo** se:
 
 In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambiati, e non ti disturba.
 
-### Il ciclo giornaliero
+### Il ciclo
 
 ```
-07:00 e 17:00 UTC ──▶ GitHub Action
+lun e gio 07:00 UTC ─▶ GitHub Action
                 │
                 ├─▶ legge config/trips.json
                 ├─▶ interroga il provider voli (SerpApi / Amadeus)
@@ -97,7 +99,7 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 ```text
 .
 ├── .github/workflows/
-│   ├── monitor.yml                 # Cron mattina+sera, trigger manuale, dispatch dal webhook
+│   ├── monitor.yml                 # Cron lun+gio, trigger manuale, dispatch dal webhook
 │   └── telegram-admin.yml          # Utility manuale: pubblica il menu "/" del bot
 ├── cloudflare-worker/               # Unico pezzo fuori da GitHub — vedi il suo README
 │   ├── src/worker.js               # Webhook Telegram → workflow_dispatch, istantaneo
@@ -116,7 +118,11 @@ In tutti gli altri casi il run gira, aggiorna lo snapshot se i numeri sono cambi
 │   │   ├── serpapi.js              # Implementazione SerpApi (Google Flights)
 │   │   ├── amadeus.js              # Implementazione Amadeus Self-Service
 │   │   └── mock.js                 # Provider offline per test (nessuna quota consumata)
-│   ├── utils/notifier.js           # Telegram + Slack
+│   ├── utils/
+│   │   ├── notifier.js             # Telegram + Slack
+│   │   ├── quota.js                # Tetto API che attraversa i run
+│   │   ├── airports.js             # IATA → città (TRN → Torino)
+│   │   └── format.js               # Durate, orari, tabelle monospaziate
 │   ├── engine.js                   # Piano di ricerca, budget, classifica
 │   ├── index.js                    # Entry point: stato, delta, rendering, notifica
 │   └── telegram-commands.js        # Tabella comandi del bot — unica fonte di verità,
@@ -145,7 +151,7 @@ Oppure da web: **New repository** → privato → poi `git remote add origin ...
 1. Registrati su **[serpapi.com](https://serpapi.com/users/sign_up)** (piano free: 100 ricerche/mese).
 2. Copia la chiave da **[serpapi.com/manage-api-key](https://serpapi.com/manage-api-key)**.
 
-> ⚠️ Con 100 ricerche/mese **non puoi girare ogni giorno** con la config di default. Leggi [Consumo della quota API](#-consumo-della-quota-api-leggimi) prima di attivare il cron.
+> ⚠️ La quota API è la risorsa scarsa di questo progetto: 15 ricerche a run significano ~16 run al mese con un piano da 250. Leggi [Consumo della quota API](#-consumo-della-quota-api-leggimi) prima di alzare la frequenza del cron.
 
 ### 3. Crea il bot Telegram
 
@@ -442,6 +448,22 @@ Restano visibili giorni sostenibili (già tagliati a 21), prezzo del volo e cost
 }
 ```
 
+### Scadenza sul rientro (`returnBy`)
+
+```jsonc
+"departureWindow": { "from": "2026-09-01", "to": "2026-10-31" },
+"returnBy": "2026-11-05"
+```
+
+Vincolo **indipendente** dalla finestra di partenza: una partenza può essere dentro `departureWindow` e comunque inutilizzabile, perché la durata del viaggio la spinge oltre la data entro cui bisogna essere rientrati. Con durata 21 giorni e `returnBy` al 5 novembre, l'ultima partenza utile è il **15 ottobre** — il 31 ottobre rientrerebbe il 21 novembre.
+
+Applicato in due punti, per due motivi diversi:
+
+1. **Nel piano di ricerca**, prima di chiamare l'API: le combinazioni escluse non vengono nemmeno cercate, quindi non costano quota. È anche la ragione per cui alzare `returnBy` o accorciare le durate cambia il numero di ricerche per run.
+2. **Sui risultati**, come `tripDuration`: il provider è libero di restituire un ritorno diverso da quello chiesto, e una data oltre la scadenza rende il viaggio inutilizzabile a prescindere dal prezzo.
+
+Se nessuna combinazione sopravvive al filtro il run si ferma con un errore esplicito, invece di cercare a vuoto e riportare "nessun volo trovato" su tutte le mete.
+
 ### Prezzo per aeroporto di partenza (`originGroups`)
 
 La classifica è decisa dal prezzo **più basso in assoluto**, che con Milano in lista è quasi sempre Malpensa o Orio. Il risultato è che chi parte da Torino non scopriva mai quanto costa *da casa sua*: il volo da TRN veniva cercato (è in `origins`) ma, se non vinceva, spariva dal messaggio.
@@ -449,21 +471,49 @@ La classifica è decisa dal prezzo **più basso in assoluto**, che con Milano in
 `originGroups` risolve questo: ogni gruppo dichiarato compare **sempre** nella notifica, vincitore o no.
 
 ```
-🥇 India (Rajasthan) (DEL)
-   🛬 Volo A/R: 432 EUR da TRN | 2026-09-29 → 2026-10-20
-   📅 21/21 gg pieni | 💸 20 EUR/gg
-   🧮 Totale 21 gg: 852 EUR
-   🛫 Torino (TRN): 432 EUR · ✅ il migliore · 2026-09-29 → 2026-10-20
-   🛫 Milano (MXP): 447 EUR · +15 EUR · 2026-09-01 → 2026-09-15
+Partenze a confronto
+Da      Volo   Diff.  Durata
+Torino  432 €  —      15h 30m
+Milano  447 €  +15    13h 23m
 ```
 
-Il `+15 EUR` è il numero che serve davvero: è il prezzo dello scarto tra i due aeroporti, da confrontare con quanto costano treno e tempo per arrivare a Milano.
+Il `+15` è il numero che serve davvero: è il prezzo dello scarto tra i due aeroporti, da confrontare con quanto costano treno e tempo per arrivare a Milano. Accanto c'è la durata, perché a volte lo scarto si paga due volte — più caro *e* più lungo.
 
 **Non consuma ricerche extra.** Google Flights accetta `departure_id=MXP,BGY,TRN` in una sola chiamata e restituisce gli itinerari da tutti e tre: prima si teneva solo il più economico e si buttava il resto, ora la risposta viene raggruppata per aeroporto di partenza. Stesso identico consumo di quota. Con `amadeus` (che interroga un origine per volta) vale lo stesso, per costruzione.
 
 Un gruppo può indicare `non tra i risultati`: Google Flights tronca la lista, quindi un aeroporto molto più caro del vincitore a volte non compare. Significa "fuori dai risultati restituiti", **non** "nessun volo disponibile".
 
 Se ometti `originGroups`, ogni aeroporto di `origins` diventa un gruppo a sé.
+
+### Formato della notifica
+
+Il messaggio è fatto di **tabelle monospaziate**, non di elenchi puntati: sei righe per destinazione moltiplicate per cinque destinazioni costringono a rileggere ogni riga per capire di cosa parla, mentre gli stessi numeri incolonnati si confrontano con lo sguardo.
+
+```
+🏆 Classifica (per giorni, poi costo)
+#  Destinazione       Volo   Giorni
+1  India (Rajasthan)  432 €  21/21
+2  Vietnam Sud + Ca…  547 €  14/21
+
+🥇 India (Rajasthan) · Delhi
+Volo A/R   432 €
+Partenza   Torino 29/09 12:00
+Arrivo     Delhi 30/09 03:30
+Durata     15h 30m · 1 scalo
+Scalo      Istanbul · 5h 04m · notturno
+Compagnia  Turkish Airlines
+Ritorno    20/10 · 21 giorni
+Giorni     21/21 pieni
+Totale     852 € · 21 gg
+A terra    20 €/gg
+```
+
+Cose da sapere su questo formato:
+
+- **I codici IATA italiani diventano città**: `TRN` → Torino, `BGY` → Bergamo Orio. Dove una città ha più scali il nome li distingue (Malpensa e Linate non sono intercambiabili). Un codice sconosciuto resta il codice — meglio tre lettere oneste di un nome inventato. La mappa è in [src/utils/airports.js](src/utils/airports.js).
+- **Orari, durata e scali sono del solo viaggio di andata.** Con `type=1` Google Flights restituisce le opzioni di andata (il prezzo è comunque quello A/R completo); i dettagli del ritorno richiedono una seconda chiamata con `departure_token`, cioè il doppio della quota per un dato che non cambia quale volo conviene. Del ritorno si mostra quindi la data.
+- **Ogni riga è opzionale**: un provider che non espone gli scali produce una tabella più corta, non una tabella piena di `n/d`.
+- **Vincolo tecnico**: Telegram non ha un markup di tabella, quindi sono blocchi `<pre>` allineati a spazi. Un `<pre>` non va a capo — scorre in orizzontale — perciò ogni riga sta entro `MAX_TABLE_WIDTH` (46 caratteri). Quando un messaggio supera i 4096 caratteri di Telegram, `splitMessage` richiude e riapre i blocchi sui pezzi: un `<pre>` tagliato a metà non darebbe una tabella brutta, ma **nessuna notifica** (`can't parse entities`).
 
 ### Aggiungere un viaggio
 
@@ -479,9 +529,29 @@ Il numero di ricerche per run è:
 ricerche = destinazioni × date_di_partenza_campionate × durate_testate
 ```
 
-Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche per run**. Il cron gira **due volte al giorno** (mattina e sera): **~3600 ricerche al mese**, più eventuali comandi `/cerca` (ognuno consuma un run intero). Il piano free di SerpApi ne offre 100 al mese.
+Con la config attuale: **4 destinazioni × 3 date × 1 durata = 12 ricerche per run**. Il cron gira **due volte a settimana** (lunedì e giovedì): al massimo 9 esecuzioni in una finestra di 30 giorni, cioè **108 ricerche**, più i comandi `/cerca` — ognuno dei quali consuma un run intero.
 
-`maxApiCallsPerRun` è un tetto di sicurezza: superata la soglia, il run si ferma e le destinazioni non ancora processate vengono segnalate invece di consumare quota a sorpresa.
+⚠️ `maxApiCallsPerRun` deve **coprire il totale**: se è più basso, le ultime mete in ordine di configurazione vengono saltate in silenzio per esaurimento del budget interno del run. `npm run mete` lo ricalcola e avvisa quando aggiungi una destinazione.
+
+### Il tetto che serviva davvero
+
+`maxApiCallsPerRun` limita **una** esecuzione, e da solo non ha mai impedito nulla: dieci `/cerca` in un pomeriggio sono dieci run legittimi. Serviva un tetto che attraversasse i run, ed è `defaults.apiQuota`:
+
+```jsonc
+"apiQuota": {
+  "monthlySearches": 250,      // il tuo piano SerpApi
+  "reserveForOnDemand": 100,   // quota che il cron NON può toccare
+  "windowDays": 30
+}
+```
+
+Due scelte di progetto dietro questi tre numeri:
+
+- **Finestra mobile di 30 giorni, non mese solare.** SerpApi azzera il contatore all'anniversario dell'iscrizione, una data che il programma non conosce. La finestra mobile evita di doverla sapere: è un po' conservativa a cavallo del rinnovo, e sbaglia quindi sempre dalla parte giusta — bloccare un run in più è recuperabile, sforare la quota no.
+- **Il cron e `/cerca` non valgono uguale.** Il cron può saltare un giro senza che nessuno se ne accorga; un `/cerca` è una persona che sta aspettando. Le esecuzioni programmate si fermano quindi a `monthlySearches − reserveForOnDemand`, lasciando la riserva alle sole richieste esplicite. La distinzione arriva da `RUN_MODE`, che il workflow deriva dal tipo di evento.
+- **La riserva va tarata sui conti, non a occhio.** Con 12 ricerche/run e 9 esecuzioni programmate per finestra servono 108 ricerche, coperte dal tetto `250 − 100 = 150`. Se la riserva fosse tanto alta da portare il tetto sotto il fabbisogno, l'ultimo run del mese verrebbe bloccato **di routine** invece che per eccezione — e un limite che scatta sempre non è un limite, è un guasto travestito. Le 100 di riserva valgono 8 `/cerca`.
+
+Il consumo vive in `data/last_prices.json` sotto `quota`, un giorno per riga, potato oltre la finestra. Quando la quota è finita il run **non parte** — una ricerca che sappiamo verrà rifiutata è solo un modo più lento di fallire — e arriva un messaggio Telegram con la data in cui torna disponibile, invece del silenzio che si confonde con "nessuna variazione di prezzo".
 
 ### Come rientrare nella quota
 
@@ -489,8 +559,8 @@ Con la config di default: **5 destinazioni × 6 date × 2 durate = 60 ricerche p
 |---|---|
 | `departureStrideDays: 30` | 6 date → 3 date, **−50%** |
 | `durationsToTest: [21]` | 2 durate → 1, **−50%** |
-| Un solo run/giorno invece di due | rimuovi una delle due righe `cron:` in `monitor.yml`, **−50%** |
-| Cron settimanale (`0 7 * * 1`) | **−85%** sul mese |
+| Cron settimanale (`0 7 * * 1`) invece di 2×/settimana | **−50%** sul mese |
+| Alzare `reserveForOnDemand` | sposta quota dal cron a `/cerca`, a parità di totale |
 | Meno `candidates` | proporzionale |
 
 `/cerca` da Telegram consuma le stesse ricerche di un run schedulato: se lo usi spesso, tienine conto nel budget di quota.

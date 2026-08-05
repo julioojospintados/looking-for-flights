@@ -15,10 +15,30 @@
  * @property {string}   currency      ISO 4217 code, e.g. "EUR".
  * @property {number}   adults        Number of adult passengers.
  *
+ * @typedef {Object} Layover
+ * @property {string|null} airport          IATA dello scalo.
+ * @property {number|null} durationMinutes  Attesa a terra.
+ * @property {boolean}     overnight        Scalo che scavalca la notte.
+ *
+ * @typedef {Object} ItineraryDetails
+ * Dettagli del viaggio di **andata**: orari locali all'aeroporto (stringhe,
+ * non Date — vedi `formatDateTime`), durata porta a porta, scali e compagnie.
+ * @property {string|null} departureAirport
+ * @property {string|null} departureTime    "YYYY-MM-DD HH:MM", ora locale.
+ * @property {string|null} arrivalAirport
+ * @property {string|null} arrivalTime      "YYYY-MM-DD HH:MM", ora locale.
+ * @property {number|null} durationMinutes  Scali inclusi.
+ * @property {string[]}    airlines
+ * @property {string[]}    flightNumbers
+ * @property {number|null} stops
+ * @property {Layover[]}   layovers
+ *
  * @typedef {Object} OriginOffer
  * @property {number}      price
  * @property {string[]}    [airlines]
  * @property {number|null} [stops]
+ * @property {number|null} [durationMinutes]
+ * @property {ItineraryDetails} [outbound]
  * @property {string|null} [bookingUrl]
  *
  * @typedef {Object} FlightQuote
@@ -39,6 +59,7 @@
  * @property {string[]}    airlines
  * @property {number|null} stops                    Stops on the outbound leg.
  * @property {number|null} outboundDurationMinutes
+ * @property {ItineraryDetails} [outbound]          Orari, scali e compagnie dell'andata.
  * @property {string|null} bookingUrl
  * @property {string}      provider
  */

@@ -109,13 +109,12 @@ class SerpApiProvider extends FlightProvider {
     const cheapest = pickCheapest(itineraries);
     if (!cheapest) return null;
 
-    const legs = Array.isArray(cheapest.flights) ? cheapest.flights : [];
-    const firstLeg = legs[0] ?? {};
+    const outbound = describeItinerary(cheapest);
 
     return {
       price: cheapest.price,
       currency,
-      origin: firstLeg.departure_airport?.id ?? origins[0],
+      origin: outbound.departureAirport ?? origins[0],
       // Gratis: gli itinerari da tutti gli aeroporti richiesti sono già in
       // questa risposta, basta non buttarli via.
       byOrigin: cheapestByOrigin(itineraries, outboundDate, returnDate, destination),
@@ -123,17 +122,58 @@ class SerpApiProvider extends FlightProvider {
       outboundDate,
       returnDate,
       durationDays,
-      airlines: [...new Set(legs.map((leg) => leg.airline).filter(Boolean))],
-      stops: legs.length > 0 ? legs.length - 1 : null,
-      outboundDurationMinutes: Number.isFinite(cheapest.total_duration)
-        ? cheapest.total_duration
-        : null,
+      airlines: outbound.airlines,
+      stops: outbound.stops,
+      outboundDurationMinutes: outbound.durationMinutes,
+      // Orari, scali e compagnie del solo viaggio di andata: con `type=1`
+      // Google Flights restituisce le opzioni di andata (il prezzo è comunque
+      // quello A/R completo) e i dettagli del ritorno arrivano solo da una
+      // seconda chiamata con `departure_token` — cioè raddoppiando il consumo
+      // di quota per informazione che non cambia quale volo conviene.
+      outbound,
       bookingUrl:
         payload.search_metadata?.google_flights_url ??
-        buildGoogleFlightsFallbackUrl(firstLeg.departure_airport?.id ?? origins[0], destination, outboundDate, returnDate),
+        buildGoogleFlightsFallbackUrl(outbound.departureAirport ?? origins[0], destination, outboundDate, returnDate),
       provider: this.name,
     };
   }
+}
+
+/**
+ * Un itinerario SerpApi → la forma neutra che l'engine e la notifica usano.
+ *
+ * @param {object} itinerary
+ * @returns {import('./flightProvider.js').ItineraryDetails}
+ */
+function describeItinerary(itinerary) {
+  const legs = Array.isArray(itinerary?.flights) ? itinerary.flights : [];
+  const first = legs[0] ?? {};
+  const last = legs.at(-1) ?? {};
+
+  const layovers = (Array.isArray(itinerary?.layovers) ? itinerary.layovers : []).map((stop) => ({
+    airport: stop?.id ?? null,
+    durationMinutes: Number.isFinite(stop?.duration) ? stop.duration : null,
+    // Uno scalo che scavalca la notte è un'altra cosa rispetto a due ore in
+    // aeroporto: cambia se ti serve un hotel, non solo quanto aspetti.
+    overnight: Boolean(stop?.overnight),
+  }));
+
+  // `total_duration` include già i tempi di scalo; la somma delle tratte no.
+  const durationMinutes = Number.isFinite(itinerary?.total_duration)
+    ? itinerary.total_duration
+    : legs.reduce((sum, leg) => sum + (Number(leg?.duration) || 0), 0) || null;
+
+  return {
+    departureAirport: first.departure_airport?.id ?? null,
+    departureTime: first.departure_airport?.time ?? null,
+    arrivalAirport: last.arrival_airport?.id ?? null,
+    arrivalTime: last.arrival_airport?.time ?? null,
+    durationMinutes,
+    airlines: [...new Set(legs.map((leg) => leg.airline).filter(Boolean))],
+    flightNumbers: legs.map((leg) => leg.flight_number).filter(Boolean),
+    stops: legs.length > 0 ? legs.length - 1 : null,
+    layovers,
+  };
 }
 
 /**
@@ -165,10 +205,14 @@ function cheapestByOrigin(itineraries, outboundDate, returnDate, destination) {
 
     if (byOrigin[airport] && byOrigin[airport].price <= price) continue;
 
+    const details = describeItinerary(itinerary);
+
     byOrigin[airport] = {
       price,
-      airlines: [...new Set(legs.map((leg) => leg.airline).filter(Boolean))],
-      stops: legs.length > 0 ? legs.length - 1 : null,
+      airlines: details.airlines,
+      stops: details.stops,
+      durationMinutes: details.durationMinutes,
+      outbound: details,
       // Il link globale della risposta punta alla ricerca multi-aeroporto: per
       // un aeroporto specifico serve una query mirata, altrimenti l'utente
       // riapre la stessa ricerca e non ritrova l'offerta annunciata.

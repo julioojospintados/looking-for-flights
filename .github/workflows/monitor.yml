@@ -2,10 +2,12 @@ name: Flight Price Monitor
 
 on:
   schedule:
-    # Mattina — 07:00 UTC (09:00 in Italia con l'ora legale, 08:00 con l'ora solare).
-    - cron: '0 7 * * *'
-    # Sera — 17:00 UTC (19:00 in Italia con l'ora legale, 18:00 con l'ora solare).
-    - cron: '0 17 * * *'
+    # Due volte a settimana, non due volte al giorno: con 15 ricerche a run e
+    # un piano da 250 al mese, il cron giornaliero ne chiedeva 450 — più
+    # dell'intera quota, prima ancora di contare i /cerca. Lunedì e giovedì
+    # alle 07:00 UTC = ~130 ricerche/mese, lasciando il resto alle richieste
+    # esplicite (che è il modo in cui questo progetto viene usato davvero).
+    - cron: '0 7 * * 1,4'
   workflow_dispatch:
     inputs:
       force_notify:
@@ -81,6 +83,10 @@ jobs:
 
           FLIGHT_PROVIDER: ${{ inputs.provider || 'serpapi' }}
           FORCE_NOTIFY: ${{ inputs.force_notify }}
+          # Distingue chi sta aspettando una risposta da chi no: solo le
+          # richieste esplicite possono intaccare la riserva di quota.
+          # Il webhook Telegram fa dispatch con force_notify=true, il cron no.
+          RUN_MODE: ${{ github.event_name == 'schedule' && 'scheduled' || 'ondemand' }}
           DRY_RUN: ${{ inputs.dry_run }}
         # `continue-on-error` così un errore API non impedisce di committare i
         # dati raccolti; l'esito reale resta visibile in `steps.monitor.outcome`.

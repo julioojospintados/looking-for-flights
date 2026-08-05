@@ -7,6 +7,215 @@ Ordine cronologico inverso: le cose più recenti in alto.
 
 ---
 
+## 2026-08-02 — Scadenza sul rientro, e ricerca dimagrita
+
+Tre cambi che si tengono insieme: un vincolo nuovo, due mete in meno, e il
+costo per run che scende da 18 a 12 ricerche.
+
+### `returnBy`: il ritorno entro il 5 novembre
+
+Vincolo **indipendente** dalla finestra di partenza, e la distinzione non è
+formale: una partenza può essere dentro `departureWindow` e comunque
+inutilizzabile, perché la durata la spinge oltre la data entro cui bisogna
+essere rientrati. Con 21 giorni e scadenza al 5 novembre, l'ultima partenza
+utile è il **15 ottobre** — il 31 ottobre rientrerebbe il 21 novembre.
+
+Si sarebbe potuto ottenere lo stesso effetto accorciando `departureWindow.to`
+al 15 ottobre, ed è la scorciatoia sbagliata: quel numero dipende dalla durata
+del viaggio, quindi andrebbe ricalcolato a mano ogni volta che cambia
+`durationsToTest`, e sarebbe silenziosamente errato con più durate in gioco
+(14 giorni permetterebbero partenze fino al 22 ottobre). La regola dichiara
+l'intento e lascia fare il conto al programma.
+
+Applicata in due punti, per due motivi diversi:
+
+1. **Nel piano di ricerca**, prima di chiamare l'API: le combinazioni escluse
+   non vengono cercate, quindi non costano quota. È anche il motivo per cui il
+   costo per run dipende da `returnBy`.
+2. **Sui risultati**, insieme al controllo su `tripDuration`: il provider è
+   libero di restituire un ritorno diverso da quello chiesto, e una data oltre
+   la scadenza rende il viaggio inutilizzabile a prescindere dal prezzo.
+
+Se il filtro non lascia sopravvivere nulla il run si ferma con un errore
+esplicito, invece di cercare a vuoto e riportare "nessun volo trovato" su
+tutte le mete — un sintomo che manderebbe a cercare il guasto nel posto
+sbagliato.
+
+### Meno mete, meno ricerche
+
+Rimossi Vietnam+Cambogia (SGN) e Malesia (KUL), commentati in `mete.txt`
+invece che cancellati: l'identità di una meta è il codice HUB, quindi
+riattivarle ritrova lo storico prezzi già raccolto.
+
+Il conto per run: 4 mete × 3 date × 1 durata = **12 ricerche**, contro le 18
+di prima e le 60 di ieri. Le tre date (01/09, 23/09, 15/10) coprono l'intera
+finestra ancora utilizzabile: la quarta, il 31/10, è caduta con la scadenza
+sul rientro.
+
+Di conseguenza `reserveForOnDemand` torna a 100: 9 esecuzioni programmate per
+finestra costano 108 ricerche, dentro il tetto `250 − 100 = 150`, e le 100 di
+riserva valgono 8 `/cerca`.
+
+> Nota: si testa solo la durata di 21 giorni. Aggiungere anche 14 in
+> `durationsToTest` raddoppierebbe il costo per run — e permetterebbe partenze
+> fino al 22 ottobre, che la durata di 3 settimane esclude.
+
+---
+
+## 2026-08-02 — Sri Lanka fra le mete
+
+Aggiunta scommentando la riga già pronta in `config/mete.txt` (`CMB`, 25 €/gg,
+40 € di extra) e sincronizzando con `npm run mete`: è il flusso previsto dal
+progetto, e lo script ha fatto il suo mestiere avvisando che le 6 mete non
+stavano più nel tetto di 15 ricerche per run.
+
+Due numeri da rifare, entrambi conseguenza diretta della sesta meta:
+
+- **`maxApiCallsPerRun` 15 → 18.** Il tetto deve coprire il totale
+  (6 mete × 3 date × 1 durata): più basso, le ultime mete in ordine di
+  configurazione verrebbero saltate **in silenzio** per esaurimento del
+  budget interno del run — un dato mancante che sembra un volo non trovato.
+- **`reserveForOnDemand` 100 → 85.** Con 18 ricerche a run, una finestra di
+  30 giorni contiene al massimo 9 esecuzioni programmate = 162 ricerche. Una
+  riserva di 100 lascerebbe al cron un tetto di 150, sotto il suo stesso
+  fabbisogno: l'ultimo run del mese verrebbe bloccato **di routine** invece
+  che per eccezione, e un limite che scatta sempre non è un limite, è un bug
+  con l'aria di essere intenzionale. A 85, il tetto del cron è 165 e le 85
+  rimaste valgono 4 `/cerca`.
+
+---
+
+## 2026-08-02 — 225 ricerche su 250 bruciate in due giorni
+
+Email di SerpApi: *"You've used 90% of your searches"* — 225 su 250 del piano
+mensile, consumate in due giorni. Ne restavano 25, e il cron del mattino
+dopo ne avrebbe chieste 60.
+
+Il conto dei run di quel giorno:
+
+```
+07:47 cron mattina    60      19:51 /cerca   60
+17:22 cron sera       60      20:12 /cerca   60
+                              21:04 /cerca   60
+```
+
+Tre cause sovrapposte, e la seconda è nostra:
+
+1. **Il costo per run era 60** (5 mete × 6 date × 2 durate) e il cron girava
+   **due volte al giorno**: 3600 ricerche al mese contro 250 disponibili. Era
+   scritto nel README fin dall'inizio, e ignorato fin dall'inizio.
+2. **La correzione del budget del giorno prima.** Finché ogni `/cerca` moriva
+   sulla secret mancante, consumava **zero** ricerche: i fallimenti stavano
+   involontariamente proteggendo la quota. Farli degradare invece che morire
+   era giusto per chi usa il bot, ma ha tolto un freno di cui nessuno
+   sospettava l'esistenza.
+3. **Il webhook.** Con `/cerca` istantaneo è naturale lanciarlo tre volte in
+   un'ora. Ogni volta, 60 ricerche.
+
+### Il tetto che mancava
+
+`maxApiCallsPerRun` limita **una** esecuzione, e da solo non ha mai impedito
+niente: dieci `/cerca` sono dieci run legittimi da 60. Serviva un tetto che
+attraversasse i run — `defaults.apiQuota`, in `src/utils/quota.js`.
+
+Tre decisioni dentro quel modulo:
+
+- **Finestra mobile di 30 giorni, non mese solare.** SerpApi azzera
+  all'anniversario dell'iscrizione, data che il programma non conosce. La
+  finestra mobile evita di doverla sapere ed è un po' conservativa a cavallo
+  del rinnovo: sbaglia sempre dalla parte giusta, perché bloccare un run in
+  più è recuperabile e sforare la quota no.
+- **Il cron e `/cerca` non valgono uguale.** Il cron può saltare un giro senza
+  che nessuno se ne accorga; un `/cerca` è una persona che sta aspettando. Le
+  esecuzioni programmate si fermano a `monthlySearches − reserveForOnDemand`,
+  e solo le richieste esplicite possono intaccare la riserva.
+- **A quota esaurita il run non parte.** Una ricerca che sappiamo verrà
+  rifiutata dall'API è solo un modo più lento di fallire. Arriva invece un
+  messaggio Telegram con la data in cui la quota torna disponibile — perché un
+  run che si ferma in silenzio è indistinguibile da "nessuna variazione di
+  prezzo", lo stesso equivoco che rendeva invisibili i fallimenti.
+
+### Il seme delle 225
+
+Il contatore parte da uno stato vuoto, quindi al primo avvio avrebbe
+autorizzato altre 250 ricerche già spese. `data/last_prices.json` è stato
+inizializzato a mano con il consumo reale comunicato da SerpApi: senza quel
+seme il tetto sarebbe stato corretto e inutile.
+
+### Costo per run: 60 → 15
+
+`departureStrideDays` 14 → 30 (6 date → 3) e `durationsToTest` [14,21] → [21].
+Cron da due volte al giorno a **lunedì e giovedì**: ~130 ricerche al mese di
+monitoraggio automatico, ~120 lasciate ai `/cerca`. Si perde la granularità
+sulle date di partenza — che con un budget di 250 ricerche al mese non era
+comunque sostenibile.
+
+---
+
+## 2026-08-01 — Notifica in tabella, con il volo per intero
+
+La notifica diceva prezzo e date e si fermava lì. Ma "426 €" non basta per
+decidere: un volo con 11 ore di scalo notturno a Muscat e uno diretto allo
+stesso prezzo sono due viaggi diversi, e finora la differenza si scopriva solo
+aprendo Google Flights.
+
+Ora ogni destinazione riporta **compagnia, orario di partenza e di arrivo,
+durata porta a porta, numero di scali e durata di ciascuno scalo** — inclusa
+l'informazione se lo scalo scavalca la notte, che è la differenza fra
+aspettare e dover dormire da qualche parte.
+
+Costo in quota API: **zero**. Erano tutti dati già presenti nella stessa
+risposta di Google Flights, semplicemente scartati durante il parsing.
+
+Tre decisioni degne di nota:
+
+- **Solo l'andata ha gli orari.** Con `type=1` Google Flights restituisce le
+  opzioni di andata (il prezzo resta quello A/R completo); i dettagli del
+  ritorno arrivano solo da una seconda chiamata con `departure_token`, cioè
+  raddoppiando il consumo di quota per un dato che non cambia quale volo
+  conviene. Del ritorno resta la data, ed è dichiarato invece che lasciato
+  intendere.
+- **Gli orari non passano mai da `new Date()`.** Sono orari *locali
+  all'aeroporto* e senza fuso: interpretarli come date li sposterebbe di ore
+  in CI, dove il runner è in UTC. Vengono riformattati come stringhe.
+- **Ogni riga della tabella è opzionale.** Un provider che non espone gli
+  scali produce una tabella più corta, non una tabella piena di `n/d`:
+  mostrare il nulla in modo ordinato è peggio che non mostrarlo.
+
+### Perché tabelle e non elenchi
+
+Sei righe puntate per destinazione, per cinque destinazioni, obbligano a
+rileggere ogni riga per capire di cosa parla. Gli stessi numeri incolonnati si
+confrontano con lo sguardo — che è l'unica cosa che si fa davvero con una
+notifica sul telefono.
+
+Telegram non ha un markup di tabella: sono blocchi `<pre>` allineati a spazi.
+Da lì due vincoli non ovvi:
+
+1. **Un `<pre>` non va a capo, scorre in orizzontale.** Una riga troppo lunga
+   non si rompe: si nasconde. Da qui `MAX_TABLE_WIDTH` a 46 caratteri e il
+   troncamento dei nomi lunghi.
+2. **Un `<pre>` tagliato a metà non dà una tabella brutta, dà *nessuna
+   notifica*.** Telegram rifiuta l'intero messaggio con `can't parse entities`
+   se il markup non è bilanciato, e i messaggi oltre i 4096 caratteri vengono
+   spezzati. `splitMessage` ora richiude e riapre i blocchi sui pezzi.
+   Il primo tentativo contava i tag aperti e chiusi per pezzo: sbagliato, un
+   pezzo può avere un `</pre>` orfano all'inizio *e* un `<pre>` orfano alla
+   fine, con i conteggi che tornano pari nascondendo due rotture. Va guardato
+   l'**ordine** dei tag, portandosi dietro lo stato da un pezzo al successivo.
+   Il test l'ha preso al primo giro.
+
+### `MXP` non è un nome
+
+I codici IATA dicono qualcosa solo a chi vola spesso. Gli aeroporti italiani
+— quelli da cui si parte — sono ora la città stessa: `TRN` → Torino, `BGY` →
+Bergamo Orio. Dove una città ha più scali il nome li distingue, perché
+Malpensa e Linate non sono intercambiabili: cambiano come ci arrivi e quanto
+ci metti. Un codice sconosciuto resta il codice — meglio tre lettere oneste di
+un nome inventato o di uno spazio vuoto.
+
+---
+
 ## 2026-08-01 — Da polling a webhook: /cerca diventa davvero istantaneo
 
 Un `/cerca` delle 18:48 senza nessun ack, nemmeno dopo un po' — non un guasto,
