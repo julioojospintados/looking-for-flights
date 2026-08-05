@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "lastUpdate": "2026-08-05T15:38:39.152Z",
+  "lastUpdate": "2026-08-05T16:03:08.907Z",
   "trips": {
     "asia-autunno-2026": {
       "tripName": "Sri Lanka Settembre 2026",
       "provider": "serpapi",
       "currency": "EUR",
-      "updatedAt": "2026-08-05T15:38:38.670Z",
+      "updatedAt": "2026-08-05T16:03:08.353Z",
       "winner": "sri-lanka",
       "results": [
         {
@@ -44,6 +44,11 @@
     }
   },
   "quota": {
-    "window": []
+    "window": [
+      {
+        "date": "2026-08-05",
+        "calls": 8
+      }
+    ]
   }
 }
