@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "lastUpdate": "2026-08-06T09:22:08.206Z",
+  "lastUpdate": "2026-08-08T11:20:52.826Z",
   "trips": {
     "asia-autunno-2026": {
       "tripName": "Sri Lanka Settembre 2026",
       "provider": "serpapi",
       "currency": "EUR",
-      "updatedAt": "2026-08-06T09:22:07.551Z",
+      "updatedAt": "2026-08-08T11:20:51.987Z",
       "winner": "sri-lanka",
       "results": [
         {
@@ -25,7 +25,7 @@
             {
               "id": "torino",
               "status": "ok",
-              "price": 642,
+              "price": 740,
               "origin": "TRN",
               "outboundDate": "2026-09-15",
               "returnDate": "2026-09-30"
@@ -52,6 +52,10 @@
       {
         "date": "2026-08-06",
         "calls": 34
+      },
+      {
+        "date": "2026-08-08",
+        "calls": 17
       }
     ]
   }
