@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdate": "2026-08-10T08:23:43.897Z",
+  "lastUpdate": "2026-08-13T08:14:28.015Z",
   "trips": {
     "asia-autunno-2026": {
       "tripName": "Sri Lanka Settembre 2026",
@@ -59,6 +59,10 @@
       },
       {
         "date": "2026-08-10",
+        "calls": 17
+      },
+      {
+        "date": "2026-08-13",
         "calls": 17
       }
     ]
