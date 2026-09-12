@@ -1,13 +1,11 @@
 name: Flight Price Monitor
 
 on:
-  schedule:
-    # Due volte a settimana, non due volte al giorno: con 15 ricerche a run e
-    # un piano da 250 al mese, il cron giornaliero ne chiedeva 450 — più
-    # dell'intera quota, prima ancora di contare i /cerca. Lunedì e giovedì
-    # alle 07:00 UTC = ~130 ricerche/mese, lasciando il resto alle richieste
-    # esplicite (che è il modo in cui questo progetto viene usato davvero).
-    - cron: '0 7 * * 1,4'
+  # Cron disattivato su richiesta: il viaggio è stato trovato, il
+  # monitoraggio automatico non serve più. Per riattivarlo, togliere il
+  # commento dalle due righe sottostanti.
+  # schedule:
+  #   - cron: '0 7 * * 1,4'
   workflow_dispatch:
     inputs:
       force_notify:
@@ -41,6 +39,11 @@ jobs:
     name: Check flight prices
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Monitoraggio sospeso su richiesta (volo già trovato): il job non fa più
+    # nulla, quindi nessuna chiamata API e nessun messaggio, anche se il
+    # webhook /cerca su Cloudflare Worker dovesse comunque far partire un
+    # workflow_dispatch. Per riattivare, rimuovere questa riga.
+    if: false
 
     steps:
       - name: Checkout
